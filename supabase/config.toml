@@ -1,0 +1,4 @@
+project_id = "negotiation-sandbox"
+
+[functions.negotiate-turn]
+verify_jwt = true

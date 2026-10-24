@@ -1,0 +1,60 @@
+{
+  "schemaVersion": 1,
+  "id": "warehouse-lease",
+  "title": "Warehouse lease",
+  "publicBrief": "A buyer and a seller negotiate a short commercial lease. Issue bounds are public. Each side's scores and reservation stay private.",
+  "issues": [
+    {
+      "id": "rent",
+      "label": "Monthly rent",
+      "kind": "number",
+      "min": 4000,
+      "max": 8000,
+      "step": 100,
+      "unit": "USD"
+    },
+    {
+      "id": "term",
+      "label": "Term in months",
+      "kind": "choice",
+      "options": ["12", "24", "36"]
+    },
+    {
+      "id": "deposit",
+      "label": "Deposit months",
+      "kind": "number",
+      "min": 0,
+      "max": 3,
+      "step": 1
+    }
+  ],
+  "parties": {
+    "buyer": {
+      "publicBrief": "You need usable space this quarter and would rather not tie up cash in a deposit.",
+      "private": {
+        "reservationUtility": 42,
+        "scores": {
+          "rent": { "kind": "number", "atMin": 50, "atMax": 0 },
+          "term": { "kind": "choice", "options": { "12": 8, "24": 22, "36": 14 } },
+          "deposit": { "kind": "number", "atMin": 15, "atMax": 0 }
+        }
+      }
+    },
+    "seller": {
+      "publicBrief": "You would rather sign a lease than keep the building vacant.",
+      "private": {
+        "reservationUtility": 37,
+        "scores": {
+          "rent": { "kind": "number", "atMin": 0, "atMax": 50 },
+          "term": { "kind": "choice", "options": { "12": 6, "24": 16, "36": 28 } },
+          "deposit": { "kind": "number", "atMin": 0, "atMax": 15 }
+        }
+      }
+    }
+  },
+  "rules": {
+    "maxRounds": 6,
+    "openingRole": "buyer",
+    "disagreementUtility": 0
+  }
+}

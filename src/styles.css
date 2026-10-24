@@ -1,0 +1,159 @@
+:root {
+  color: #221c16;
+  background: #efe6d6;
+  font-family: "Iowan Old Style", Palatino, "Palatino Linotype", Georgia, serif;
+  line-height: 1.45;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background-image: linear-gradient(#efe6d6, #efe6d6), repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 27px,
+    rgba(138, 90, 18, 0.08) 28px
+  );
+}
+
+button, input, textarea, select { font: inherit; color: inherit; }
+
+button, .button {
+  background: #221c16;
+  color: #f7f1e6;
+  border: 0;
+  border-radius: 999px;
+  padding: 0.45rem 0.9rem;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+button:disabled { opacity: 0.55; cursor: not-allowed; }
+
+button.secondary, a.secondary {
+  background: transparent;
+  color: #221c16;
+  border: 1px solid #221c16;
+}
+
+a { color: #8d2f2f; }
+
+:focus-visible { outline: 2px solid #8d2f2f; outline-offset: 2px; }
+
+.app { max-width: 1100px; margin: 0 auto; padding: 1.25rem 1rem 3rem; }
+
+.mast {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: end;
+  border-bottom: 2px solid #221c16;
+  padding-bottom: 0.75rem;
+}
+
+.mast h1 { margin: 0; font-size: 2rem; letter-spacing: -0.03em; }
+
+.eyebrow {
+  margin: 0 0 0.2rem;
+  font-family: Consolas, "Cascadia Mono", ui-monospace, monospace;
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+nav { display: flex; flex-wrap: wrap; gap: 0.75rem; }
+
+nav a { text-decoration: none; color: #221c16; }
+
+nav a[aria-current="page"] { color: #8d2f2f; text-decoration: underline; text-underline-offset: 0.25rem; }
+
+.banner, .notice {
+  margin: 1rem 0;
+  padding: 0.75rem 0.9rem;
+  background: #f7f1e6;
+  border-left: 4px solid #8a5a12;
+}
+
+.notice { border-left-color: #8d2f2f; }
+
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 0.8rem; }
+
+.card, .panel {
+  background: rgba(247, 241, 230, 0.92);
+  border: 1px solid #d9d0c1;
+  padding: 0.9rem;
+}
+
+.card h2, .panel h2 { margin: 0 0 0.4rem; font-size: 1.25rem; }
+
+.card p, .panel p { margin: 0.35rem 0; }
+
+.selected { border-color: #221c16; box-shadow: inset 4px 0 0 #8d2f2f; }
+
+.chips { display: flex; flex-wrap: wrap; gap: 0.35rem; padding: 0; margin: 0.5rem 0 0; list-style: none; }
+
+.chips li, .tag {
+  font-family: Consolas, "Cascadia Mono", ui-monospace, monospace;
+  font-size: 0.78rem;
+  border: 1px solid #d9d0c1;
+  padding: 0.1rem 0.35rem;
+}
+
+label { display: block; margin: 0.7rem 0 0.25rem; }
+
+textarea, input[type="email"], input[type="password"], input[type="text"] {
+  width: 100%;
+  background: #fffdf8;
+  border: 1px solid #221c16;
+  padding: 0.45rem 0.55rem;
+}
+
+textarea { min-height: 11rem; font-family: Consolas, "Cascadia Mono", ui-monospace, monospace; font-size: 0.85rem; }
+
+.actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.8rem; }
+
+.pairings { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0.35rem 0.8rem; margin: 0.4rem 0 0; padding: 0; border: 0; }
+
+.pairings label { margin: 0; font-family: Consolas, "Cascadia Mono", ui-monospace, monospace; font-size: 0.85rem; }
+
+.table-wrap { overflow-x: auto; border: 1px solid #221c16; background: #fffdf8; }
+
+table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+
+th, td { text-align: left; padding: 0.45rem 0.55rem; border-bottom: 1px solid #d9d0c1; vertical-align: top; }
+
+th { font-size: 0.78rem; letter-spacing: 0.04em; text-transform: uppercase; }
+
+.good { color: #1f6a45; }
+
+.bad { color: #8d2f2f; }
+
+.turn {
+  display: grid;
+  grid-template-columns: 8rem 1fr;
+  gap: 0.3rem 0.8rem;
+}
+
+.turn dt { font-family: Consolas, "Cascadia Mono", ui-monospace, monospace; font-size: 0.78rem; }
+
+.turn dd { margin: 0; }
+
+pre {
+  white-space: pre-wrap;
+  font-family: Consolas, "Cascadia Mono", ui-monospace, monospace;
+  font-size: 0.82rem;
+  background: #fffdf8;
+  padding: 0.6rem;
+  border: 1px solid #d9d0c1;
+}
+
+.footer { margin-top: 2rem; font-size: 0.9rem; color: #5c5146; }
+
+@media (max-width: 720px) {
+  .mast { display: block; }
+  .mast h1 { font-size: 1.7rem; }
+  nav { margin-top: 0.6rem; }
+  .turn { grid-template-columns: 1fr; }
+}
