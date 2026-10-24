@@ -2,6 +2,8 @@ export { scriptedAction } from "./agents.ts";
 export { fraction, isAttempted, isResolved, pairedDifferences, resultRows, stats, summarizeCells } from "./aggregate.ts";
 export type { CellSummary, Fraction, PairedDelta, ResultRow, Stats } from "./aggregate.ts";
 export { csvCell, gamesCsv, termsSummary, toCsv, turnsCsv } from "./csv.ts";
+export { LIVE_CONTRACT_VERSION } from "./liveContract.ts";
+export type { ConfigResponse, Disposition, ErrorResponse, ProviderCategory, TurnRequest, TurnResponse } from "./liveContract.ts";
 export { bootstrapMean, summarizePairings } from "./bootstrap.ts";
 export { analyzeClaims, analyzeDeception, claimIsTrue, claimTolerance, claimTruth, ownNumberCandidate } from "./deception.ts";
 export type { ClaimAnalysis, ClaimEvidence } from "./deception.ts";
@@ -53,7 +55,7 @@ export {
 } from "./runspec.ts";
 export type { CellSpec, PlannedMatch, RunSpec } from "./runspec.ts";
 export { buildTranscript, encodeJsonl, MAX_TRANSCRIPT_BYTES, resumeKey, verifiedResumeKey, verifyTranscript } from "./transcript.ts";
-export type { TranscriptDocument, VerificationReport } from "./transcript.ts";
+export type { TranscriptDocument, TranscriptHeader, VerificationReport } from "./transcript.ts";
 export { isRecord, parseDefinition, parseScenario, parseScenarioText, toPublicScenario, variationKey } from "./scenario.ts";
 export { outcomeOf, scoreGame, scoreMatch } from "./score.ts";
 export {
