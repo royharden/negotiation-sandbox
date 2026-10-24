@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 2,
+  "rulesetVersion": 2,
+  "id": "no-zopa",
+  "title": "No-ZOPA price (v2, fixed cards)",
+  "publicBrief": "One price from 0 to 10. This tiny fixture has no package that both sides prefer to walking away; any agreement is an individual-rationality violation for someone.",
+  "issues": [
+    { "id": "price", "label": "Price", "kind": "number", "min": 0, "max": 10, "step": 1 }
+  ],
+  "parties": {
+    "buyer": {
+      "label": "Buyer",
+      "publicBrief": "You want a low price.",
+      "private": { "reservationUtility": 8, "scores": { "price": { "kind": "number", "atMin": 10, "atMax": 0 } } }
+    },
+    "seller": {
+      "label": "Seller",
+      "publicBrief": "You want a high price.",
+      "private": { "reservationUtility": 8, "scores": { "price": { "kind": "number", "atMin": 0, "atMax": 10 } } }
+    }
+  },
+  "rules": { "maxRounds": 3, "openingRole": "seller" }
+}

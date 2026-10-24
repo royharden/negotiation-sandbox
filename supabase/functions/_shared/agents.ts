@@ -10,7 +10,7 @@ export function scriptedAction(style: ScriptedId, view: AgentView): Action {
   const progress = Math.min(1, myOffers / Math.max(1, view.maxRounds - 1));
   const offerProgress = style === "firm" ? 0.25 * progress : progress;
   const terms = mixTerms(issues, ideal, center, offerProgress);
-  const claims = claimsFor(style, card, view.seed, myOffers);
+  const claims = claimsFor(style, card, view.seed, myOffers, view.publicScenario.schemaVersion === 2);
 
   if (view.standing && view.standing.role !== view.role) {
     const utility = packageUtility(issues, card, view.standing.terms);
@@ -27,13 +27,16 @@ export function scriptedAction(style: ScriptedId, view: AgentView): Action {
   return spoken("offer", terms, claims);
 }
 
-function claimsFor(style: ScriptedId, card: PrivateCard, seed: number, myOffers: number): Action["claims"] {
-  if (style === "bluff") {
-    return [{ about: "reservation", stated: card.reservationUtility + 20 + (seed % 7) }];
-  }
-  if (style === "concession" && myOffers === 0) {
-    return [{ about: "reservation", stated: card.reservationUtility }];
-  }
+/**
+ * Scripted claims about the agent's own reservation. v1 claims carry no relation (equality, historical);
+ * v2 claims state relation "eq" explicitly. The policy is stateless: everything comes from the view.
+ */
+function claimsFor(style: ScriptedId, card: PrivateCard, seed: number, myOffers: number, v2: boolean): Action["claims"] {
+  const reservation = (stated: number) => (v2
+    ? { about: "reservation" as const, relation: "eq" as const, stated }
+    : { about: "reservation" as const, stated });
+  if (style === "bluff") return [reservation(card.reservationUtility + 20 + (seed % 7))];
+  if (style === "concession" && myOffers === 0) return [reservation(card.reservationUtility)];
   return undefined;
 }
 

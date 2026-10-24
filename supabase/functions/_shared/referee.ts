@@ -1,7 +1,8 @@
+import { parseWholeJsonOutput } from "./json.ts";
 import { isRecord, toPublicScenario } from "./scenario.ts";
 import type { Action, AgentView, Claim, GameState, PublicTurn, Role, Scenario, Terms } from "./types.ts";
 import { MAX_CLAIMS, MAX_NOTE_LENGTH } from "./types.ts";
-import { numberOnStep } from "./utility.ts";
+import { numberOnStep, rulesetOf } from "./utility.ts";
 
 export function otherRole(role: Role): Role {
   return role === "buyer" ? "seller" : "buyer";
@@ -35,6 +36,17 @@ export function buildView(scenario: Scenario, state: GameState, role: Role, seed
   };
 }
 
+/**
+ * Strict whole-output action parse (v2 path, used for every attempt): one JSON object, optionally in one
+ * surrounding code fence, duplicate keys and any other text rejected. No brace searching.
+ */
+export function parseActionText(text: string, ruleset: 1 | 2): { ok: true; action: Action } | { ok: false; error: string } {
+  const json = parseWholeJsonOutput(text);
+  if (!json.ok) return { ok: false, error: `not one JSON action object: ${json.error}` };
+  return parseAction(json.value, ruleset);
+}
+
+/** Legacy v1 reader kept for historical callers. */
 export function parseActionJson(text: string): { ok: true; action: Action } | { ok: false; error: string } {
   let raw = text.trim();
   if (raw.startsWith("```")) {
@@ -47,7 +59,7 @@ export function parseActionJson(text: string): { ok: true; action: Action } | { 
   }
 }
 
-export function parseAction(value: unknown): { ok: true; action: Action } | { ok: false; error: string } {
+export function parseAction(value: unknown, ruleset: 1 | 2 = 1): { ok: true; action: Action } | { ok: false; error: string } {
   if (!isRecord(value)) return { ok: false, error: "action must be an object" };
   if (!Object.keys(value).every((key) => ["type", "terms", "note", "claims"].includes(key))) {
     return { ok: false, error: "action has an unknown field" };
@@ -65,7 +77,7 @@ export function parseAction(value: unknown): { ok: true; action: Action } | { ok
     action.note = value.note;
   }
   if (value.claims !== undefined) {
-    const claims = parseClaims(value.claims);
+    const claims = parseClaims(value.claims, ruleset);
     if (!claims.ok) return claims;
     action.claims = claims.claims;
   }
@@ -88,7 +100,7 @@ export function applyAction(
   if (role !== state.nextRole) return { ok: false, error: "out of turn" };
   if (state.turnsPlayed >= maxTurns(scenario)) return { ok: false, error: "round cap reached" };
 
-  const structural = parseAction(action);
+  const structural = parseAction(action, rulesetOf(scenario));
   if (!structural.ok) return structural;
   const legal = legalize(scenario, structural.action);
   if (!legal.ok) return legal;
@@ -125,11 +137,19 @@ export function applyAction(
   }
 
   const terms = clean.terms ?? {};
+  const turnsPlayed = state.turnsPlayed + 1;
+  if (turnsPlayed >= maxTurns(scenario)) {
+    // Canonical cap: an offer on the final legal turn closes the match as cap and the offer expires.
+    return {
+      ok: true,
+      state: { nextRole: otherRole(role), turnsPlayed, standing: null, history, terminal: { kind: "disagreement", reason: "cap" } },
+    };
+  }
   return {
     ok: true,
     state: {
       nextRole: otherRole(role),
-      turnsPlayed: state.turnsPlayed + 1,
+      turnsPlayed,
       standing: { role, terms: { ...terms } },
       history,
       terminal: null,
@@ -197,24 +217,34 @@ function claimMatchesScenario(scenario: Scenario, claim: Claim): { ok: true } | 
   return { ok: true };
 }
 
-function parseClaims(value: unknown): { ok: true; claims: Claim[] } | { ok: false; error: string } {
+function parseClaims(value: unknown, ruleset: 1 | 2): { ok: true; claims: Claim[] } | { ok: false; error: string } {
   if (!Array.isArray(value)) return { ok: false, error: "claims must be an array" };
   if (value.length > MAX_CLAIMS) return { ok: false, error: "too many claims" };
   const claims: Claim[] = [];
   for (const item of value) {
-    const parsed = parseClaim(item);
+    const parsed = parseClaim(item, ruleset);
     if (!parsed.ok) return parsed;
     claims.push(parsed.claim);
   }
   return { ok: true, claims };
 }
 
-function parseClaim(value: unknown): { ok: true; claim: Claim } | { ok: false; error: string } {
+function parseClaim(value: unknown, ruleset: 1 | 2): { ok: true; claim: Claim } | { ok: false; error: string } {
   if (!isRecord(value) || typeof value.about !== "string") return { ok: false, error: "claim must be an object" };
   if (!isFiniteNumber(value.stated)) return { ok: false, error: "claim stated must be a finite number" };
+  if (Math.abs(value.stated) > 1_000_000) return { ok: false, error: "claim stated must be within +/-1000000" };
   if (value.about === "reservation") {
-    if (!exactKeys(value, ["about", "stated"])) return { ok: false, error: "reservation claim has unknown fields" };
-    return { ok: true, claim: { about: "reservation", stated: value.stated } };
+    if (ruleset === 1) {
+      if (!exactKeys(value, ["about", "stated"])) return { ok: false, error: "reservation claim has unknown fields" };
+      return { ok: true, claim: { about: "reservation", stated: value.stated } };
+    }
+    if (!exactKeys(value, ["about", "relation", "stated"])) {
+      return { ok: false, error: "reservation claim needs exactly about, relation and stated" };
+    }
+    if (value.relation !== "eq" && value.relation !== "at_least" && value.relation !== "at_most") {
+      return { ok: false, error: "reservation claim relation must be eq, at_least or at_most" };
+    }
+    return { ok: true, claim: { about: "reservation", relation: value.relation, stated: value.stated } };
   }
   if (value.about === "number-score") {
     if (!exactKeys(value, ["about", "issueId", "endpoint", "stated"])) {
