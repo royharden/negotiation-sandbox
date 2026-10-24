@@ -165,8 +165,10 @@ export class ProviderFailure extends Error {
   }
 }
 
+export const OPERATOR_CANCEL_REASON = "cancelled by the operator";
+
 export class MatchCancelled extends Error {
-  constructor(message = "cancelled by the operator") {
+  constructor(message = OPERATOR_CANCEL_REASON) {
     super(message);
     this.name = "MatchCancelled";
   }
@@ -220,10 +222,14 @@ export function fixtureSeat(fixture: SyntheticFixture): Seat {
   const next = createFixtureCursor(fixture);
   return ({ legalTurn, attemptNo, state, instance, role, opponent }) => {
     if (!fixtureCompatible(fixture, instance.scenario, instance.instanceSeed, role, opponent)) {
-      throw new FixtureNotApplicable(`fixture ${fixture.id} is declared only for ${fixture.compatible.definitionId} seeds ${fixture.compatible.instanceSeeds.join(",")} as ${fixture.compatible.role} against its declared opponent`);
+      throw new FixtureNotApplicable(fixtureNotDeclaredMessage(fixture));
     }
     return { raw: next({ legalTurn, attemptNo, standingRole: state.standing?.role ?? null }) };
   };
+}
+
+export function fixtureNotDeclaredMessage(fixture: SyntheticFixture): string {
+  return `fixture ${fixture.id} is declared only for ${fixture.compatible.definitionId} seeds ${fixture.compatible.instanceSeeds.join(",")} as ${fixture.compatible.role} against its declared opponent`;
 }
 
 export function boundRaw(raw: string): { raw: string; tooLong: boolean } {
@@ -283,7 +289,7 @@ export async function playMatch(input: {
   });
 
   while (!state.terminal) {
-    if (input.isCancelled?.()) return finish("cancelled", null, "cancelled by the operator");
+    if (input.isCancelled?.()) return finish("cancelled", null, OPERATOR_CANCEL_REASON);
     const role = state.nextRole;
     const config = input.cell.roles[role];
     const legalTurn = state.history.length;

@@ -263,6 +263,30 @@ test("an oversized output is stored as a truncated invalid attempt and still ver
   assert.equal(verified.ok && verified.report.verified, true, verified.ok ? verified.report.problems.join("; ") : verified.error);
 });
 
+test("a cut-short scripted transcript cannot be relabelled with an impossible failure status", async () => {
+  const lines = (await oneTranscript()).trimEnd().split("\n");
+  const cut = lines.slice(0, 2);
+  const draft = verifyTranscript(cut.join("\n"));
+  assert.equal(draft.ok, true);
+  if (!draft.ok) return;
+  const forged = {
+    record: "footer",
+    transcriptVersion: 2,
+    status: "provider_error",
+    failureRole: "buyer",
+    failureReason: "timeout: x",
+    failureCall: null,
+    contentSha256: draft.report.recomputed.contentSha256,
+    metrics: { ...draft.report.recomputed.metrics, status: "provider_error", failureRole: "buyer", failureReason: "timeout: x" },
+  };
+  const result = verifyTranscript([...cut, JSON.stringify(forged)].join("\n"));
+  assert.equal(result.ok, true);
+  if (result.ok) {
+    assert.equal(result.report.verified, false);
+    assert.ok(result.report.problems.some((problem) => problem.includes("impossible")));
+  }
+});
+
 test("transcript records are closed: an extra reasoning field is rejected", async () => {
   const lines = (await oneTranscript()).trimEnd().split("\n");
   const attempt = JSON.parse(lines[1] as string) as Record<string, unknown>;

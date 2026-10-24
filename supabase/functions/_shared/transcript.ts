@@ -7,7 +7,7 @@ import { parseJsonStrict } from "./json.ts";
 import { templateDigests } from "./prompt.ts";
 import { buildView, initialState } from "./referee.ts";
 import { REQUEST_LIMITS } from "./request.ts";
-import { boundRaw, judgeAttempt, policySeedsFor, RAW_TOO_LONG_ERROR } from "./runner.ts";
+import { boundRaw, fixtureNotDeclaredMessage, judgeAttempt, OPERATOR_CANCEL_REASON, policySeedsFor, RAW_TOO_LONG_ERROR } from "./runner.ts";
 import type { MatchExecution } from "./runner.ts";
 import { agentClass, agentKey, cellKey, currentVersions, findCell, runSpecDigest, validateRunSpec } from "./runspec.ts";
 import type { RunSpec, RunVersions } from "./runspec.ts";
@@ -217,6 +217,7 @@ export function verifyTranscript(text: string): { ok: false; error: string } | {
   if (canonicalJson(cell.roles) !== canonicalJson(header.roles)) problems.push("header role configs differ from the run spec cell");
   if (header.cellKey !== cellKey(spec.spec, cell)) problems.push("cell key does not match the cell configuration");
   if (header.agentClass !== agentClass(cell)) problems.push("agent class does not match the cell");
+  if (header.gitSha !== null && (typeof header.gitSha !== "string" || !/^[0-9a-f]{7,64}$/.test(header.gitSha))) problems.push("gitSha must be a hex SHA or null");
   if (typeof header.executionId !== "string" || !/^[A-Za-z0-9-]{8,64}$/.test(header.executionId)) problems.push("execution id is missing or malformed");
   const versions = currentVersions(definition.definition);
   if (canonicalJson(header.versions) !== canonicalJson(versions) || canonicalJson(spec.spec.versions) !== canonicalJson(versions)) {
@@ -327,29 +328,59 @@ export function verifyTranscript(text: string): { ok: false; error: string } | {
 
   const footer = hasFooter ? (last as unknown as TranscriptFooter) : null;
   if (status === null && state.terminal) status = "complete";
-  if (status === null && !pendingRepair && footer?.status !== "cancelled") {
-    // A scripted policy that throws is a recorded policy defect (format_failure, agent_error) and is recomputable.
-    // An explicit cancellation recorded before that turn keeps its cancelled status.
-    const next = cell.roles[state.nextRole];
-    if (next.kind === "scripted") {
+  if (status === null) {
+    // Non-terminal prefix. What can stop the match here depends on the seat that would act next, exactly as
+    // in playMatch: scripted and fixture seats are recomputed; only model seats can end provider_error,
+    // incomplete or blocked by configuration, and only an operator cancellation can stop any seat.
+    const nextRole = pendingRepair ? pendingRepair.role : state.nextRole;
+    const next = cell.roles[nextRole];
+    const operatorCancel = footer?.status === "cancelled" && footer.failureRole === null
+      && footer.failureReason === OPERATOR_CANCEL_REASON && footer.failureCall === null && !pendingRepair;
+    if (next.kind === "model") {
+      if (footer && NON_RECOMPUTABLE.includes(footer.status)) {
+        status = footer.status;
+        failureRole = footer.failureRole;
+        failureReason = footer.failureReason;
+      } else {
+        status = "incomplete";
+        if (footer) problems.push(`footer status ${String(footer.status)} contradicts an unfinished attempt prefix`);
+      }
+    } else if (operatorCancel) {
+      status = "cancelled";
+      failureReason = OPERATOR_CANCEL_REASON;
+    } else if (next.kind === "scripted") {
       try {
-        scriptedAction(next.policy, buildView(scenario, state, state.nextRole, expectedSeeds[state.nextRole]));
+        scriptedAction(next.policy, buildView(scenario, state, nextRole, expectedSeeds[nextRole]));
+        status = "incomplete";
+        if (footer) problems.push(`footer status ${String(footer.status)} is impossible here: the next seat is scripted and would act`);
       } catch (error) {
+        // A scripted policy that throws is a recorded policy defect (format_failure, agent_error) and is recomputable.
         status = "format_failure";
-        failureRole = state.nextRole;
+        failureRole = nextRole;
         failureReason = `agent_error: ${error instanceof Error ? error.message : "seat failed"}`;
       }
-    }
-  }
-  if (status === null) {
-    // Non-terminal prefix: only an explicit non-recomputable footer status can describe it.
-    if (footer && NON_RECOMPUTABLE.includes(footer.status)) {
-      status = footer.status;
-      failureRole = footer.failureRole;
-      failureReason = footer.failureReason;
     } else {
-      status = "incomplete";
-      if (footer) problems.push(`footer status ${String(footer.status)} contradicts an unfinished attempt prefix`);
+      const fixture = fixtures.get(next.fixtureId);
+      const opponent = cell.roles[nextRole === "buyer" ? "seller" : "buyer"];
+      let refusal: string | null = null;
+      if (!fixture) refusal = null;
+      else if (!fixtureCompatible(fixture, definition.definition, header.instanceSeed, nextRole, opponent)) refusal = fixtureNotDeclaredMessage(fixture);
+      else {
+        try {
+          fixtureCursors[nextRole]?.({ legalTurn: state.history.length, attemptNo: pendingRepair ? 2 : 1, standingRole: state.standing?.role ?? null });
+        } catch (error) {
+          if (error instanceof FixtureNotApplicable) refusal = error.message;
+          else throw error;
+        }
+      }
+      if (refusal !== null) {
+        status = "blocked";
+        failureRole = nextRole;
+        failureReason = `fixture_not_applicable: ${refusal}`;
+      } else {
+        status = "incomplete";
+        if (footer) problems.push(`footer status ${String(footer.status)} is impossible here: the next fixture seat would act`);
+      }
     }
   }
   if (pendingRepair && status === "complete") problems.push("a repair is pending at completion");
@@ -361,7 +392,9 @@ export function verifyTranscript(text: string): { ok: false; error: string } | {
     if (footer.contentSha256 !== recomputedDigest) problems.push("footer content hash does not match the header and attempts");
     if (canonicalJson(footer.metrics) !== canonicalJson(metrics)) problems.push("cached footer metrics do not reproduce; the recomputed values are shown instead");
     if (footer.failureRole !== failureRole || footer.failureReason !== failureReason) problems.push("footer failure role/reason does not reproduce");
-    if (footer.failureCall !== null && !NON_RECOMPUTABLE.includes(status)) problems.push("footer carries failed-call metadata on a recomputable status");
+    if (footer.failureCall !== null && (!NON_RECOMPUTABLE.includes(status) || cell.roles[failureRole ?? state.nextRole].kind !== "model")) {
+      problems.push("footer carries failed-call metadata that only a model seat can produce");
+    }
   } else {
     problems.push("no footer: this is an incomplete export and cannot be accepted as a resolved match");
   }
