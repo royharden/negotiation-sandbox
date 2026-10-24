@@ -7,7 +7,7 @@ import { instantiate } from "../supabase/functions/_shared/instantiate.ts";
 import { parseJsonStrict } from "../supabase/functions/_shared/json.ts";
 import { initialState, replay } from "../supabase/functions/_shared/referee.ts";
 import { buildRoleRequest } from "../supabase/functions/_shared/request.ts";
-import { fixtureSeat, playMatch, runMatrix, scriptedSeat } from "../supabase/functions/_shared/runner.ts";
+import { fixtureSeat, ModelBlocked, playMatch, ProviderFailure, runMatrix, scriptedSeat } from "../supabase/functions/_shared/runner.ts";
 import type { Seat } from "../supabase/functions/_shared/runner.ts";
 import { buildRunSpec, modelConfig, planMatches, scriptedConfig, worstCaseModelCalls } from "../supabase/functions/_shared/runspec.ts";
 import type { CellSpec, RunSpec } from "../supabase/functions/_shared/runspec.ts";
@@ -285,6 +285,61 @@ test("a cut-short scripted transcript cannot be relabelled with an impossible fa
     assert.equal(result.report.verified, false);
     assert.ok(result.report.problems.some((problem) => problem.includes("impossible")));
   }
+});
+
+async function modelCellTranscript(seat: Seat): Promise<string> {
+  const definition = definitionFrom("scenarios/warehouse-lease-v2.json");
+  const built = buildRunSpec({ label: "model", definition, instanceSeeds: [1], cells: [cell("mc", modelConfig("configured-model"), scriptedConfig("concession"))] });
+  const instance = instantiate(definition, 1);
+  if (!built.ok || !instance.ok) throw new Error("setup");
+  const execution = await playMatch({
+    instance: instance.instance,
+    cell: built.spec.cells[0] as CellSpec,
+    replicate: 0,
+    executionId: nextId(),
+    seats: { buyer: seat, seller: scriptedSeat("concession") },
+  });
+  return encodeJsonl(buildTranscript({ spec: built.spec, instance: instance.instance, execution }));
+}
+
+test("model-seat stops produced by the runner verify: provider failure with call metadata, and a block", async () => {
+  const live = { operationId: "op-1", modelCallId: "call-1", requestDigest: null, providerModel: null, status: "timeout", usage: null, latencyMs: null, outputDigest: null };
+  const failed = verifyTranscript(await modelCellTranscript(() => {
+    throw new ProviderFailure("no answer in time", "timeout", live, true);
+  }));
+  assert.equal(failed.ok && failed.report.verified, true, failed.ok ? failed.report.problems.join("; ") : failed.error);
+  if (failed.ok) {
+    assert.equal(failed.report.recomputed.status, "incomplete");
+    assert.equal(failed.report.document.footer?.failureCall?.modelCallId, "call-1");
+  }
+  const blocked = verifyTranscript(await modelCellTranscript(() => {
+    throw new ModelBlocked("Sign in first.");
+  }));
+  assert.equal(blocked.ok && blocked.report.verified, true, blocked.ok ? blocked.report.problems.join("; ") : blocked.error);
+});
+
+test("model-seat footers that the runner cannot produce do not verify", async () => {
+  const lines = (await modelCellTranscript(() => {
+    throw new ModelBlocked("Sign in first.");
+  })).trimEnd().split("\n");
+  const footer = JSON.parse(lines[lines.length - 1] as string) as Record<string, unknown> & { metrics: Record<string, unknown> };
+  const forge = (changes: Record<string, unknown>) => {
+    const next = { ...footer, ...changes, metrics: { ...footer.metrics, ...changes } };
+    delete (next.metrics as Record<string, unknown>).failureCall;
+    return verifyTranscript([...lines.slice(0, -1), JSON.stringify(next)].join("\n"));
+  };
+  for (const changes of [
+    { status: "provider_error", failureRole: "seller", failureReason: "timeout: x" },
+    { status: "provider_error", failureRole: null, failureReason: "timeout: x" },
+    { status: "blocked", failureRole: "buyer", failureReason: "fixture_not_applicable: x" },
+  ]) {
+    const result = forge(changes);
+    assert.equal(result.ok && result.report.verified, false, JSON.stringify(changes));
+  }
+  const badType = forge({ failureReason: { toString: 1 } });
+  assert.equal(badType.ok, false, "a malformed failure reason is a visible error, not a crash");
+  const badRole = verifyTranscript([...lines.slice(0, -1), JSON.stringify({ ...footer, failureRole: "x" })].join("\n"));
+  assert.equal(badRole.ok, false);
 });
 
 test("transcript records are closed: an extra reasoning field is rejected", async () => {

@@ -159,7 +159,13 @@ function validLive(value: unknown): boolean {
   return typeof value.operationId === "string" && text(value.modelCallId) && text(value.requestDigest) && text(value.providerModel)
     && typeof value.status === "string" && text(value.outputDigest)
     && (value.latencyMs === null || typeof value.latencyMs === "number")
-    && (value.usage === null || isRecord(value.usage));
+    && (value.usage === null || validUsage(value.usage));
+}
+
+function validUsage(value: unknown): boolean {
+  if (!isRecord(value)) return false;
+  return Object.keys(value).every((key) => (key === "inputTokens" || key === "outputTokens")
+    && (value[key] === null || (typeof value[key] === "number" && Number.isFinite(value[key] as number))));
 }
 
 /**
@@ -169,6 +175,15 @@ function validLive(value: unknown): boolean {
  * Never executes imported code and never initializes a provider.
  */
 export function verifyTranscript(text: string): { ok: false; error: string } | { ok: true; report: VerificationReport } {
+  try {
+    return verifyTranscriptUnchecked(text);
+  } catch (error) {
+    // Malformed field types in an imported file must surface as a visible error, never a crash.
+    return { ok: false, error: `transcript is malformed: ${error instanceof Error ? error.message : "unreadable value"}` };
+  }
+}
+
+function verifyTranscriptUnchecked(text: string): { ok: false; error: string } | { ok: true; report: VerificationReport } {
   if (utf8Length(text) > MAX_TRANSCRIPT_BYTES) return { ok: false, error: `transcript is larger than ${MAX_TRANSCRIPT_BYTES} bytes` };
   const lines = text.split("\n");
   if (lines[lines.length - 1] === "") lines.pop();
@@ -195,6 +210,12 @@ export function verifyTranscript(text: string): { ok: false; error: string } | {
     if (typeof record.rawTruncated !== "boolean" || !validLive(record.live)) return { ok: false, error: `attempt ${index} has malformed truncation or live call fields` };
   }
   if (hasFooter && last && (!sameKeys(last, FOOTER_KEYS) || !validLive(last.failureCall))) return { ok: false, error: "footer has missing or unknown fields" };
+  if (hasFooter && last && (
+    typeof last.status !== "string"
+    || (last.failureRole !== null && last.failureRole !== "buyer" && last.failureRole !== "seller")
+    || (last.failureReason !== null && typeof last.failureReason !== "string")
+    || typeof last.contentSha256 !== "string" || !isRecord(last.metrics)
+  )) return { ok: false, error: "footer has malformed status, failure role, failure reason, hash or metrics" };
   const header = head as unknown as TranscriptHeader;
 
   // Definition, instance and run spec identity.
@@ -337,13 +358,21 @@ export function verifyTranscript(text: string): { ok: false; error: string } | {
     const operatorCancel = footer?.status === "cancelled" && footer.failureRole === null
       && footer.failureReason === OPERATOR_CANCEL_REASON && footer.failureCall === null && !pendingRepair;
     if (next.kind === "model") {
-      if (footer && NON_RECOMPUTABLE.includes(footer.status)) {
-        status = footer.status;
-        failureRole = footer.failureRole;
-        failureReason = footer.failureReason;
+      // playMatch can stop a model seat only by (a) turn-start operator cancellation, or (b) the seat throwing
+      // while it is that role's turn: cancelled/blocked/provider_error/incomplete with failureRole = that role,
+      // a string reason, and failed-call metadata only from ProviderFailure (provider_error or incomplete).
+      const seatThrew = footer !== null && NON_RECOMPUTABLE.includes(footer.status)
+        && footer.failureRole === nextRole
+        && typeof footer.failureReason === "string" && footer.failureReason.length > 0
+        && !(footer.status === "blocked" && footer.failureReason.startsWith("fixture_not_applicable:"))
+        && (footer.failureCall === null || footer.status === "provider_error" || footer.status === "incomplete");
+      if (operatorCancel || seatThrew) {
+        status = (footer as TranscriptFooter).status;
+        failureRole = (footer as TranscriptFooter).failureRole;
+        failureReason = (footer as TranscriptFooter).failureReason;
       } else {
         status = "incomplete";
-        if (footer) problems.push(`footer status ${String(footer.status)} contradicts an unfinished attempt prefix`);
+        if (footer) problems.push(`footer status ${String(footer.status)} with role ${String(footer.failureRole)} is impossible for the model seat that would act next`);
       }
     } else if (operatorCancel) {
       status = "cancelled";
@@ -392,7 +421,8 @@ export function verifyTranscript(text: string): { ok: false; error: string } | {
     if (footer.contentSha256 !== recomputedDigest) problems.push("footer content hash does not match the header and attempts");
     if (canonicalJson(footer.metrics) !== canonicalJson(metrics)) problems.push("cached footer metrics do not reproduce; the recomputed values are shown instead");
     if (footer.failureRole !== failureRole || footer.failureReason !== failureReason) problems.push("footer failure role/reason does not reproduce");
-    if (footer.failureCall !== null && (!NON_RECOMPUTABLE.includes(status) || cell.roles[failureRole ?? state.nextRole].kind !== "model")) {
+    const callRole: Role = failureRole ?? (pendingRepair ? pendingRepair.role : state.nextRole);
+    if (footer.failureCall !== null && (!(status === "provider_error" || status === "incomplete") || cell.roles[callRole].kind !== "model")) {
       problems.push("footer carries failed-call metadata that only a model seat can produce");
     }
   } else {
