@@ -1,5 +1,5 @@
 import { scriptedAction } from "./agents.ts";
-import { createFixtureCursor, FixtureNotApplicable } from "./fixtureAgent.ts";
+import { createFixtureCursor, fixtureCompatible, FixtureNotApplicable } from "./fixtureAgent.ts";
 import type { SyntheticFixture } from "./fixtureAgent.ts";
 import { canonicalJson, utf8Length } from "./hash.ts";
 import { instantiate } from "./instantiate.ts";
@@ -185,6 +185,8 @@ export type SeatContext = {
   /** live call id of the invalid first attempt, for a model repair. */
   repairOf: string | null;
   executionId: string;
+  /** The other role's configuration (fixture seats check their declared compatibility against it). */
+  opponent: AgentConfig;
 };
 
 export type SeatDecision = { raw: string; live?: LiveCallInfo | null };
@@ -201,6 +203,8 @@ export type MatchExecution = {
   attempts: AttemptRecord[];
   failureRole: Role | null;
   failureReason: string | null;
+  /** Live metadata of a provider call that failed or became uncertain (may represent a paid request). */
+  failureCall: LiveCallInfo | null;
   metrics: MatchMetrics;
 };
 
@@ -208,10 +212,18 @@ export function scriptedSeat(policy: ScriptedId): Seat {
   return ({ view }) => ({ raw: canonicalJson(scriptedAction(policy, view)) });
 }
 
-/** Each call returns a seat with a fresh cursor, so fixture state never leaks across matches. */
+/**
+ * Each call returns a seat with a fresh cursor, so fixture state never leaks across matches. The seat
+ * refuses (fixture_not_applicable) outside its declared definition/seed/role/opponent cell.
+ */
 export function fixtureSeat(fixture: SyntheticFixture): Seat {
   const next = createFixtureCursor(fixture);
-  return ({ legalTurn, attemptNo, state }) => ({ raw: next({ legalTurn, attemptNo, standingRole: state.standing?.role ?? null }) });
+  return ({ legalTurn, attemptNo, state, instance, role, opponent }) => {
+    if (!fixtureCompatible(fixture, instance.scenario, instance.instanceSeed, role, opponent)) {
+      throw new FixtureNotApplicable(`fixture ${fixture.id} is declared only for ${fixture.compatible.definitionId} seeds ${fixture.compatible.instanceSeeds.join(",")} as ${fixture.compatible.role} against its declared opponent`);
+    }
+    return { raw: next({ legalTurn, attemptNo, standingRole: state.standing?.role ?? null }) };
+  };
 }
 
 export function boundRaw(raw: string): { raw: string; tooLong: boolean } {
@@ -254,6 +266,7 @@ export async function playMatch(input: {
   let state = initialState(scenario);
   const attempts: AttemptRecord[] = [];
 
+  let failureCall: LiveCallInfo | null = null;
   const finish = (status: MatchStatus, failureRole: Role | null = null, failureReason: string | null = null): MatchExecution => ({
     executionId: input.executionId,
     cellId: input.cell.cellId,
@@ -265,6 +278,7 @@ export async function playMatch(input: {
     attempts,
     failureRole,
     failureReason,
+    failureCall,
     metrics: scoreMatch({ scenario, gridKey: input.instance.instanceId, state, status, failureRole, failureReason, attempts }),
   });
 
@@ -293,12 +307,14 @@ export async function playMatch(input: {
           repair,
           repairOf,
           executionId: input.executionId,
+          opponent: input.cell.roles[role === "buyer" ? "seller" : "buyer"],
         });
       } catch (error) {
         if (error instanceof MatchCancelled) return finish("cancelled", role, error.message);
         if (error instanceof ModelBlocked) return finish("blocked", role, error.message);
         if (error instanceof FixtureNotApplicable) return finish("blocked", role, `fixture_not_applicable: ${error.message}`);
         if (error instanceof ProviderFailure) {
+          failureCall = error.live;
           return finish(error.uncertain ? "incomplete" : "provider_error", role, `${error.category}: ${error.message}`);
         }
         // A scripted policy throwing is a recorded policy defect, never replaced with a fallback action.
@@ -315,6 +331,7 @@ export async function playMatch(input: {
         attemptNo,
         agentKey: agentKey(config),
         raw: bounded.raw,
+        rawTruncated: bounded.tooLong,
         parsed: judged.ok ? judged.action : judged.parsed,
         verdict: judged.ok ? "legal" : "invalid",
         error: judged.ok ? null : judged.error,

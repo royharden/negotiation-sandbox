@@ -214,6 +214,56 @@ test("an incompatible fixture path is blocked as fixture_not_applicable, with no
   assert.equal(execution.metrics.roles.buyer.utility, null);
 });
 
+test("a fixture seat outside its declared cell is refused, and verification flags such a cell", async () => {
+  const fixture = demoFixture();
+  const definition = definitionFrom("scenarios/warehouse-lease-v2.json");
+  const built = buildRunSpec({ label: "undeclared", definition, instanceSeeds: [1], cells: [cell("undeclared", fixtureConfig(fixture), scriptedConfig("firm"))] });
+  const instance = instantiate(definition, 1);
+  assert.equal(built.ok && instance.ok, true);
+  if (!built.ok || !instance.ok) return;
+  const execution = await playMatch({
+    instance: instance.instance,
+    cell: built.spec.cells[0] as CellSpec,
+    replicate: 0,
+    executionId: nextId(),
+    seats: { buyer: fixtureSeat(fixture), seller: scriptedSeat("firm") },
+  });
+  assert.equal(execution.status, "blocked");
+  assert.equal(execution.attempts.length, 0, "no authored attempt is replayed against the wrong opponent");
+  assert.match(execution.failureReason ?? "", /^fixture_not_applicable/);
+});
+
+test("an oversized output is stored as a truncated invalid attempt and still verifies", async () => {
+  const base = demoFixture();
+  const steps = base.steps.map((step, index) => (index === 0 ? { ...step, raw: `{"type":"walk","note":"${"é".repeat(5000)}"}` } : step));
+  const fixture: SyntheticFixture = { ...base, id: "oversize-demo", steps };
+  const definition = definitionFrom("scenarios/warehouse-lease-v2.json");
+  const built = buildRunSpec({ label: "oversize", definition, instanceSeeds: [1], cells: [cell("oversize", fixtureConfig(fixture), scriptedConfig("concession"))] });
+  const instance = instantiate(definition, 1);
+  assert.equal(built.ok && instance.ok, true);
+  if (!built.ok || !instance.ok) return;
+  const execution = await playMatch({
+    instance: instance.instance,
+    cell: built.spec.cells[0] as CellSpec,
+    replicate: 0,
+    executionId: nextId(),
+    seats: { buyer: fixtureSeat(fixture), seller: scriptedSeat("concession") },
+  });
+  assert.equal(execution.attempts[0]?.rawTruncated, true);
+  assert.equal(execution.attempts[0]?.verdict, "invalid");
+  assert.match(execution.attempts[0]?.error ?? "", /larger than 8192 bytes/);
+  const text = encodeJsonl(buildTranscript({ spec: built.spec, instance: instance.instance, execution, fixtures: [fixture] }));
+  const verified = verifyTranscript(text);
+  assert.equal(verified.ok && verified.report.verified, true, verified.ok ? verified.report.problems.join("; ") : verified.error);
+});
+
+test("transcript records are closed: an extra reasoning field is rejected", async () => {
+  const lines = (await oneTranscript()).trimEnd().split("\n");
+  const attempt = JSON.parse(lines[1] as string) as Record<string, unknown>;
+  attempt.reasoning = "private";
+  assert.equal(verifyTranscript([lines[0], JSON.stringify(attempt), ...lines.slice(2)].join("\n")).ok, false);
+});
+
 test("request digests cover history, card, params and repair; prompts exclude the counterpart card", () => {
   const raw = JSON.parse(readFileSync(new URL("../fixtures/scenarios/warehouse-lease-v2.json", import.meta.url), "utf8")) as Record<string, unknown>;
   const parties = raw.parties as Record<string, { private: { reservationUtility: number } }>;

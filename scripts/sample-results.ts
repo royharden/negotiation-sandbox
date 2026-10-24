@@ -82,7 +82,7 @@ async function runSpec(name: string, spec: RunSpec, fixtures: SyntheticFixture[]
     engineVersion: ENGINE_VERSION,
     run_spec_sha256: runSpecDigest(spec),
     runSpec: spec,
-    transcriptHashes,
+    transcriptFileSha256: transcriptHashes,
     cells: summarizeCells(rows),
   }, null, 2));
   console.log(`${name}: ${result.executions.length}/${result.planned.length} matches -> ${dir}`);

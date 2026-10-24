@@ -1,5 +1,5 @@
 import { scriptedAction } from "./agents.ts";
-import { createFixtureCursor, fixtureDigest, FixtureNotApplicable, parseFixture } from "./fixtureAgent.ts";
+import { createFixtureCursor, fixtureCompatible, fixtureDigest, FixtureNotApplicable, parseFixture } from "./fixtureAgent.ts";
 import type { SyntheticFixture } from "./fixtureAgent.ts";
 import { canonicalJson, digestOf, isSha256Hex, utf8Length } from "./hash.ts";
 import { verifyInstance } from "./instantiate.ts";
@@ -12,7 +12,7 @@ import { agentClass, agentKey, cellKey, currentVersions, findCell, runSpecDigest
 import type { RunSpec, RunVersions } from "./runspec.ts";
 import { isRecord, parseDefinition } from "./scenario.ts";
 import { scoreMatch } from "./score.ts";
-import type { AgentConfig, AttemptRecord, GameState, Instance, MatchMetrics, MatchStatus, PromptVariant, Role, ScenarioDefinition } from "./types.ts";
+import type { AgentConfig, AttemptRecord, GameState, Instance, LiveCallInfo, MatchMetrics, MatchStatus, PromptVariant, Role, ScenarioDefinition } from "./types.ts";
 
 export const TRANSCRIPT_VERSION = 2 as const;
 export const MAX_TRANSCRIPT_BYTES = 1024 * 1024;
@@ -49,6 +49,8 @@ export type TranscriptFooter = {
   status: MatchStatus;
   failureRole: Role | null;
   failureReason: string | null;
+  /** Live metadata of a failed/uncertain provider call, kept so a possibly paid request is never lost. */
+  failureCall: LiveCallInfo | null;
   /** SHA-256 of canonical {header, attempts}; the footer itself is excluded. */
   contentSha256: string;
   /** Cached derived metrics. Never trusted: recomputed on every import/load. */
@@ -102,6 +104,7 @@ export function buildTranscript(input: {
         status: input.execution.status,
         failureRole: input.execution.failureRole,
         failureReason: input.execution.failureReason,
+        failureCall: input.execution.failureCall,
         contentSha256: contentDigest(header, attempts),
         metrics: input.execution.metrics,
       };
@@ -135,6 +138,29 @@ export type VerificationReport = {
 
 const NON_RECOMPUTABLE: readonly MatchStatus[] = ["blocked", "provider_error", "cancelled", "incomplete"];
 
+const HEADER_KEYS = [
+  "record", "transcriptVersion", "definition", "definitionDigest", "instance", "runSpec", "runSpecDigest", "executionId",
+  "cellId", "cellKey", "agentClass", "instanceSeed", "replicate", "policySeeds", "roles", "versions", "templateDigests", "fixtures", "gitSha",
+];
+const ATTEMPT_KEYS = ["record", "transcriptVersion", "index", "role", "legalTurn", "attemptNo", "agentKey", "raw", "rawTruncated", "parsed", "verdict", "error", "live"];
+const FOOTER_KEYS = ["record", "transcriptVersion", "status", "failureRole", "failureReason", "failureCall", "contentSha256", "metrics"];
+const LIVE_KEYS = ["operationId", "modelCallId", "requestDigest", "providerModel", "status", "usage", "latencyMs", "outputDigest"];
+
+function sameKeys(value: Record<string, unknown>, keys: readonly string[]): boolean {
+  const present = Object.keys(value);
+  return present.length === keys.length && keys.every((key) => Object.prototype.hasOwnProperty.call(value, key));
+}
+
+function validLive(value: unknown): boolean {
+  if (value === null) return true;
+  if (!isRecord(value) || !sameKeys(value, LIVE_KEYS)) return false;
+  const text = (item: unknown) => item === null || (typeof item === "string" && item.length <= 200);
+  return typeof value.operationId === "string" && text(value.modelCallId) && text(value.requestDigest) && text(value.providerModel)
+    && typeof value.status === "string" && text(value.outputDigest)
+    && (value.latencyMs === null || typeof value.latencyMs === "number")
+    && (value.usage === null || isRecord(value.usage));
+}
+
 /**
  * Full import/load/resume verification (PLAN 6.2): size/version/shape; snapshots and digests; run spec
  * and cell identity; strict re-parse of every attempt; recomputed verdicts, turn order, repair limits,
@@ -162,6 +188,12 @@ export function verifyTranscript(text: string): { ok: false; error: string } | {
   if (attemptRecords.length > MAX_ATTEMPTS_PER_MATCH) return { ok: false, error: `more than ${MAX_ATTEMPTS_PER_MATCH} attempts` };
 
   const problems: string[] = [];
+  if (!sameKeys(head, HEADER_KEYS)) return { ok: false, error: "header has missing or unknown fields" };
+  for (const [index, record] of attemptRecords.entries()) {
+    if (!sameKeys(record, ATTEMPT_KEYS)) return { ok: false, error: `attempt ${index} has missing or unknown fields (no private-reasoning or extra fields are allowed)` };
+    if (typeof record.rawTruncated !== "boolean" || !validLive(record.live)) return { ok: false, error: `attempt ${index} has malformed truncation or live call fields` };
+  }
+  if (hasFooter && last && (!sameKeys(last, FOOTER_KEYS) || !validLive(last.failureCall))) return { ok: false, error: "footer has missing or unknown fields" };
   const header = head as unknown as TranscriptHeader;
 
   // Definition, instance and run spec identity.
@@ -206,8 +238,15 @@ export function verifyTranscript(text: string): { ok: false; error: string } | {
     const config = cell.roles[role];
     if (config.kind !== "fixture") continue;
     const fixture = fixtures.get(config.fixtureId);
-    if (!fixture || fixtureDigest(fixture) !== config.fixtureDigest) problems.push(`fixture ${config.fixtureId} document is missing or its digest differs`);
-    else fixtureCursors[role] = createFixtureCursor(fixture);
+    if (!fixture || fixtureDigest(fixture) !== config.fixtureDigest) {
+      problems.push(`fixture ${config.fixtureId} document is missing or its digest differs`);
+      continue;
+    }
+    const opponent = cell.roles[role === "buyer" ? "seller" : "buyer"];
+    if (!fixtureCompatible(fixture, definition.definition, header.instanceSeed, role, opponent)) {
+      problems.push(`fixture ${config.fixtureId} is not declared for this definition/seed/role/opponent cell`);
+    }
+    fixtureCursors[role] = createFixtureCursor(fixture);
   }
 
   // Replay every attempt through the strict parser and referee.
@@ -256,11 +295,12 @@ export function verifyTranscript(text: string): { ok: false; error: string } | {
           else throw error;
         }
       }
-    } else if (attempt.live !== null && !isRecord(attempt.live)) {
-      problems.push(`${where} live call metadata is malformed`);
     }
-    const bounded = boundRaw(attempt.raw);
-    const judged = bounded.tooLong ? { ok: false as const, parsed: null, error: RAW_TOO_LONG_ERROR } : judgeAttempt(scenario, state, attempt.role, attempt.raw);
+    if (config.kind !== "model" && attempt.live !== null) problems.push(`${where} carries live call metadata on a non-model seat`);
+    // A truncated attempt stores only its bounded prefix; it is invalid by the size rule and never re-parsed.
+    if (boundRaw(attempt.raw).tooLong) problems.push(`${where} raw output exceeds the byte bound`);
+    if (attempt.rawTruncated && config.kind === "scripted") problems.push(`${where} is a truncated scripted action`);
+    const judged = attempt.rawTruncated ? { ok: false as const, parsed: null, error: RAW_TOO_LONG_ERROR } : judgeAttempt(scenario, state, attempt.role, attempt.raw);
     const verdict = judged.ok ? "legal" : "invalid";
     if (attempt.verdict !== verdict) problems.push(`${where} verdict ${String(attempt.verdict)} does not reproduce (${verdict})`);
     if ((judged.ok ? null : judged.error) !== attempt.error) problems.push(`${where} validation error does not reproduce`);
@@ -282,6 +322,19 @@ export function verifyTranscript(text: string): { ok: false; error: string } | {
 
   const footer = hasFooter ? (last as unknown as TranscriptFooter) : null;
   if (status === null && state.terminal) status = "complete";
+  if (status === null && !pendingRepair) {
+    // A scripted policy that throws is a recorded policy defect (format_failure, agent_error) and is recomputable.
+    const next = cell.roles[state.nextRole];
+    if (next.kind === "scripted") {
+      try {
+        scriptedAction(next.policy, buildView(scenario, state, state.nextRole, expectedSeeds[state.nextRole]));
+      } catch (error) {
+        status = "format_failure";
+        failureRole = state.nextRole;
+        failureReason = `agent_error: ${error instanceof Error ? error.message : "seat failed"}`;
+      }
+    }
+  }
   if (status === null) {
     // Non-terminal prefix: only an explicit non-recomputable footer status can describe it.
     if (footer && NON_RECOMPUTABLE.includes(footer.status)) {
@@ -302,6 +355,7 @@ export function verifyTranscript(text: string): { ok: false; error: string } | {
     if (footer.contentSha256 !== recomputedDigest) problems.push("footer content hash does not match the header and attempts");
     if (canonicalJson(footer.metrics) !== canonicalJson(metrics)) problems.push("cached footer metrics do not reproduce; the recomputed values are shown instead");
     if (footer.failureRole !== failureRole || footer.failureReason !== failureReason) problems.push("footer failure role/reason does not reproduce");
+    if (footer.failureCall !== null && !NON_RECOMPUTABLE.includes(status)) problems.push("footer carries failed-call metadata on a recomputable status");
   } else {
     problems.push("no footer: this is an incomplete export and cannot be accepted as a resolved match");
   }

@@ -77,7 +77,7 @@ export function fixtureConfig(fixture: SyntheticFixture): AgentConfig {
 }
 
 /** Declared-cell compatibility check used before a fixture seat can be selected. */
-export function fixtureCompatible(fixture: SyntheticFixture, definition: ScenarioDefinition, instanceSeed: number, role: Role, opponent: AgentConfig): boolean {
+export function fixtureCompatible(fixture: SyntheticFixture, definition: Pick<ScenarioDefinition, "id" | "schemaVersion">, instanceSeed: number, role: Role, opponent: AgentConfig): boolean {
   return definition.id === fixture.compatible.definitionId
     && definition.schemaVersion === fixture.compatible.schemaVersion
     && fixture.compatible.instanceSeeds.includes(instanceSeed)

@@ -98,15 +98,18 @@ export function buildRunSpec(input: {
   cells: CellSpec[];
   gitSha?: string | null;
 }): { ok: true; spec: RunSpec } | { ok: false; error: string } {
+  // Hash the parsed form so validateRunSpec (which re-parses) always reproduces the digest.
+  const parsed = parseDefinition(input.definition);
+  if (!parsed.ok) return parsed;
   const spec: RunSpec = {
     runSpecVersion: RUN_SPEC_VERSION,
     label: input.label.slice(0, 80),
-    definition: structuredClone(input.definition),
-    definitionDigest: definitionDigest(input.definition),
+    definition: parsed.definition,
+    definitionDigest: definitionDigest(parsed.definition),
     instanceSeeds: [...input.instanceSeeds],
     replicates: input.replicates ?? 1,
     cells: structuredClone(input.cells),
-    versions: currentVersions(input.definition),
+    versions: currentVersions(parsed.definition),
     gitSha: input.gitSha ?? null,
   };
   const check = validateRunSpec(spec);
@@ -154,6 +157,8 @@ export function validateRunSpec(value: unknown): { ok: true; spec: RunSpec } | {
     return { ok: false, error: "gitSha must be a hex SHA or null" };
   }
   if (typeof value.label !== "string") return { ok: false, error: "run spec label must be a string" };
+  const matches = value.instanceSeeds.length * (value.replicates as number) * value.cells.length;
+  if (matches > MAX_SANDBOX_MATCHES) return { ok: false, error: `the matrix plans ${matches} matches; the bounded sweep allows at most ${MAX_SANDBOX_MATCHES}` };
   return { ok: true, spec: value as unknown as RunSpec };
 }
 

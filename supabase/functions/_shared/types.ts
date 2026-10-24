@@ -307,6 +307,8 @@ export type AttemptRecord = {
   agentKey: string;
   /** Bounded raw public action output (model/fixture) or canonical scripted action JSON. */
   raw: string;
+  /** The original output exceeded the raw byte bound; raw holds only its bounded prefix and the attempt is invalid. */
+  rawTruncated: boolean;
   parsed: Action | null;
   verdict: AttemptVerdict;
   error: string | null;
