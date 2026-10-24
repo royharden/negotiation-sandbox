@@ -6,6 +6,8 @@ export type SessionState = {
   email: string | null;
   userId: string | null;
   error: string | null;
+  /** True after Supabase reports a PASSWORD_RECOVERY sign-in from the reset link. */
+  recovery?: boolean;
 };
 
 const signedOut: SessionState = { status: "signed-out", email: null, userId: null, error: null };
@@ -32,10 +34,10 @@ export function useSession(): SessionState {
       if (cancel) return;
       setState({ ...signedOut, error: error instanceof Error ? error.message : "Could not read the session." });
     });
-    const { data } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data } = supabase.auth.onAuthStateChange((event, session) => {
       const user = session?.user;
       setState(user
-        ? { status: "ready", email: user.email ?? null, userId: user.id, error: null }
+        ? { status: "ready", email: user.email ?? null, userId: user.id, error: null, recovery: event === "PASSWORD_RECOVERY" }
         : signedOut);
     });
     return () => {

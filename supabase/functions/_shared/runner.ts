@@ -356,7 +356,7 @@ export async function playMatch(input: {
   return finish("complete");
 }
 
-export type MatrixProgress = { planned: PlannedMatch[]; done: MatchExecution[]; current: PlannedMatch | null };
+export type MatrixProgress = { planned: PlannedMatch[]; done: Array<MatchExecution & { planIndex: number }>; current: PlannedMatch | null };
 
 /**
  * Plan the whole matrix first, then run sequentially, yielding between matches. A blocked cell does not

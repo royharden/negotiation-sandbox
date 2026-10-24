@@ -1,57 +1,92 @@
-import { useMemo, useState } from "react";
-import type { Scenario } from "./engine.ts";
-import { loadBundledScenarios } from "./fixtures.ts";
+import { useCallback, useMemo, useState } from "react";
+import type { ScenarioDefinition } from "./engine.ts";
+import { loadBundledDefinitions, loadBundledFixtures } from "./fixtures.ts";
 import { useSession } from "./lib/session.ts";
 import { supabaseConfigError } from "./lib/supabase.ts";
 import { navigate, useRoute } from "./route.ts";
+import type { ImportedTranscript, RunRecord } from "./runState.ts";
 import type { SessionBatch } from "./savedBatch.ts";
 import { Account } from "./views/Account.tsx";
 import { Bench } from "./views/Bench.tsx";
+import { LegacyReplay } from "./views/LegacyReplay.tsx";
 import { Replay } from "./views/Replay.tsx";
 import { Results } from "./views/Results.tsx";
 import { Scenarios } from "./views/Scenarios.tsx";
 
+export type Mode = "sandbox" | "live";
+
 export function App() {
   const route = useRoute();
-  const bundled = useMemo(() => loadBundledScenarios(), []);
-  const [added, setAdded] = useState<Scenario[]>([]);
-  const scenarios = useMemo(() => {
-    const map = new Map<string, Scenario>();
-    for (const scenario of bundled.scenarios) map.set(scenario.id, scenario);
-    for (const scenario of added) map.set(scenario.id, scenario);
+  const bundled = useMemo(() => loadBundledDefinitions(), []);
+  const bundledFixtures = useMemo(() => loadBundledFixtures(), []);
+  const [added, setAdded] = useState<ScenarioDefinition[]>([]);
+  const definitions = useMemo(() => {
+    const map = new Map<string, ScenarioDefinition>();
+    for (const definition of bundled.definitions) map.set(definition.id, definition);
+    for (const definition of added) map.set(definition.id, definition);
     return [...map.values()];
-  }, [added, bundled.scenarios]);
-  const [selectedId, setSelectedId] = useState(bundled.scenarios[0]?.id ?? "");
-  const [batch, setBatch] = useState<SessionBatch | null>(null);
-  const [notice, setNotice] = useState<string | null>(bundled.errors.length ? bundled.errors.join(" ") : null);
+  }, [added, bundled.definitions]);
+  const [selectedId, setSelectedId] = useState(bundled.definitions[0]?.id ?? "");
+  const [mode, setMode] = useState<Mode>("sandbox");
+  const [runs, setRuns] = useState<RunRecord[]>([]);
+  const [imports, setImports] = useState<ImportedTranscript[]>([]);
+  const [legacyBatch, setLegacyBatch] = useState<SessionBatch | null>(null);
+  const startupErrors = [...bundled.errors, ...bundledFixtures.errors];
+  const [notice, setNotice] = useState<string | null>(startupErrors.length ? startupErrors.join(" ") : null);
   const session = useSession();
-  const selected = scenarios.find((scenario) => scenario.id === selectedId) ?? scenarios[0] ?? null;
-  const rowValue = Number(route.params.get("row") ?? "0");
-  const rowIndex = Number.isInteger(rowValue) && rowValue >= 0 ? rowValue : 0;
+  const selected = definitions.find((definition) => definition.id === selectedId) ?? definitions[0] ?? null;
+
+  const upsertRun = useCallback((run: RunRecord) => {
+    setRuns((current) => [run, ...current.filter((item) => item.runId !== run.runId)]);
+  }, []);
+  const addImport = useCallback((item: ImportedTranscript) => {
+    setImports((current) => [item, ...current.filter((existing) => existing.id !== item.id)]);
+  }, []);
+
+  const param = (name: string) => route.params.get(name);
+  const runParam = param("run");
+  const currentRun = runs.find((run) => run.runId === runParam) ?? runs[0] ?? null;
+  const planValue = Number(param("plan") ?? "0");
+  const planIndex = Number.isInteger(planValue) && planValue >= 0 ? planValue : 0;
 
   let page = <p>That page is not in the sandbox. <a href="/?page=scenarios" onClick={(event) => { event.preventDefault(); navigate("scenarios"); }}>Back to scenarios</a></p>;
   if (route.page === "scenarios") {
     page = (
       <Scenarios
-        scenarios={scenarios}
+        definitions={definitions}
         selectedId={selected?.id ?? ""}
         session={session}
         onSelect={setSelectedId}
-        onLoad={(scenario) => {
-          setAdded((current) => [...current.filter((item) => item.id !== scenario.id), scenario]);
-          setSelectedId(scenario.id);
+        onLoad={(definition) => {
+          setAdded((current) => [...current.filter((item) => item.id !== definition.id), definition]);
+          setSelectedId(definition.id);
         }}
         onNotice={setNotice}
       />
     );
   } else if (route.page === "bench") {
-    page = <Bench scenario={selected} onBatch={setBatch} onNotice={setNotice} />;
+    page = (
+      <Bench
+        definition={selected}
+        fixtures={bundledFixtures.fixtures}
+        mode={mode}
+        onMode={setMode}
+        session={session}
+        onRun={upsertRun}
+        onNotice={setNotice}
+      />
+    );
   } else if (route.page === "results") {
-    page = <Results batch={batch} session={session} onNotice={setNotice} />;
+    page = <Results runs={runs} run={currentRun} session={session} onNotice={setNotice} />;
   } else if (route.page === "replay") {
-    page = <Replay batch={batch} rowIndex={rowIndex} />;
+    const legacy = param("legacy") === "1";
+    const importId = param("import");
+    const rowValue = Number(param("row") ?? "0");
+    page = legacy
+      ? <LegacyReplay batch={legacyBatch} rowIndex={Number.isInteger(rowValue) && rowValue >= 0 ? rowValue : 0} />
+      : <Replay run={importId ? null : currentRun} planIndex={planIndex} imported={imports.find((item) => item.id === importId) ?? null} imports={imports} onImport={addImport} onNotice={setNotice} />;
   } else if (route.page === "account") {
-    page = <Account session={session} onReplay={setBatch} onNotice={setNotice} />;
+    page = <Account session={session} onLegacyReplay={setLegacyBatch} onImport={addImport} onNotice={setNotice} />;
   }
 
   return (
@@ -77,11 +112,19 @@ export function App() {
           ))}
         </nav>
       </header>
+      <p className="modebar" role="status">
+        Mode: <strong>{mode === "sandbox" ? "Sandbox" : "Live"}</strong>
+        {mode === "sandbox"
+          ? " - scripted and synthetic seats run in this browser, with no account, database or provider."
+          : " - model seats call negotiate-turn; each attempt counts against your daily allowance."}
+      </p>
       {supabaseConfigError ? <p className="banner">{supabaseConfigError}</p> : null}
-      {notice ? <p className="notice" role="status">{notice}</p> : null}
+      {notice ? <p className="notice" role="status">{notice} <button type="button" className="link" onClick={() => setNotice(null)}>Dismiss</button></p> : null}
       <main>{page}</main>
-      <p className="footer">Scripted games run in this browser. Saved runs and model calls use your Bolt database.</p>
+      <p className="footer">
+        This is an operator-controlled simulation: the operator sees both private cards and full exports contain them.
+        Private means absent from the counterpart agent's observation and model request.
+      </p>
     </div>
   );
 }
-

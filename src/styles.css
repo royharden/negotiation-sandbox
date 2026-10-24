@@ -103,7 +103,7 @@ nav a[aria-current="page"] { color: #8d2f2f; text-decoration: underline; text-un
 
 label { display: block; margin: 0.7rem 0 0.25rem; }
 
-textarea, input[type="email"], input[type="password"], input[type="text"] {
+textarea, select, input[type="email"], input[type="password"], input[type="text"] {
   width: 100%;
   background: #fffdf8;
   border: 1px solid #221c16;
@@ -157,3 +157,31 @@ pre {
   nav { margin-top: 0.6rem; }
   .turn { grid-template-columns: 1fr; }
 }
+
+.modebar {
+  margin: 0.8rem 0 0;
+  font-family: Consolas, "Cascadia Mono", ui-monospace, monospace;
+  font-size: 0.85rem;
+}
+
+.hint { font-size: 0.88rem; color: #5c5146; }
+
+button.link {
+  background: transparent;
+  color: #8d2f2f;
+  padding: 0;
+  border-radius: 0;
+  text-decoration: underline;
+}
+
+.inline { display: flex; flex-wrap: wrap; gap: 0.4rem 0.8rem; align-items: end; }
+
+.inline label { margin: 0; }
+
+.inline select { width: auto; }
+
+input[type="file"] { display: block; }
+
+details summary { cursor: pointer; }
+
+.panel h3 { margin: 1rem 0 0.4rem; }
