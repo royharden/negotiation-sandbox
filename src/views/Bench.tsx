@@ -159,10 +159,9 @@ export function Bench(props: {
             <label htmlFor="seeds">Instance seeds</label>
             <input id="seeds" type="text" value={seeds} onChange={(event) => setSeeds(event.target.value)} />
             <label htmlFor="replicates">Replicates</label>
-            <input id="replicates" type="text" inputMode="numeric" value={String(replicates)} onChange={(event) => {
-              const value = Number(event.target.value);
-              if (Number.isInteger(value) && value >= 1 && value <= 5) setReplicates(value);
-            }} />
+            <select id="replicates" value={String(replicates)} onChange={(event) => setReplicates(Number(event.target.value))}>
+              {[1, 2, 3, 4, 5].map((value) => <option key={value} value={value}>{value}</option>)}
+            </select>
             <p>
               Preview: {preview === null ? "fix the seeds or pairings" : `${preview} planned matches (${parsedSeeds.ok ? parsedSeeds.seeds.length : 0} seeds x ${replicates} replicate x ${checked.length} pairings)`}, 0 paid calls.
               {preview !== null && preview > 6 ? " Larger sweeps (up to 180) are allowed but their browser responsiveness is not yet verified." : ""}

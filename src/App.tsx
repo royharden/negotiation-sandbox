@@ -119,6 +119,7 @@ export function App() {
           : " - model seats call negotiate-turn; each attempt counts against your daily allowance."}
       </p>
       {supabaseConfigError ? <p className="banner">{supabaseConfigError}</p> : null}
+      {session.recovery && route.page !== "account" ? <p className="notice" role="alert">Password recovery link accepted. <a href="/?page=account" onClick={(event) => { event.preventDefault(); navigate("account"); }}>Set a new password</a>.</p> : null}
       {notice ? <p className="notice" role="status">{notice} <button type="button" className="link" onClick={() => setNotice(null)}>Dismiss</button></p> : null}
       <main>{page}</main>
       <p className="footer">

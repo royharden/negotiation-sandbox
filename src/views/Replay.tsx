@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { buildRoleRequest, claimIsTrue, claimTruth, replay, templateDigests, verifyTranscript } from "../engine.ts";
+import { buildRoleRequest, canonicalJson, claimIsTrue, claimTruth, replay, templateDigests, verifyTranscript } from "../engine.ts";
 import type { Action, AgentConfig, Claim, PublicTurn, Role, Scenario, VerificationReport } from "../engine.ts";
 import { formatPoints } from "../format.ts";
 import { navigate } from "../route.ts";
@@ -17,19 +17,19 @@ export function Replay(props: {
   onNotice: (message: string | null) => void;
 }) {
   const source = useMemo(() => {
-    if (props.imported) return { name: props.imported.name, text: props.imported.text, report: props.imported.report, error: null };
+    if (props.imported) return { key: props.imported.id, name: props.imported.name, text: props.imported.text, report: props.imported.report, error: null };
     if (!props.run) return null;
     const execution = executionAt(props.run, props.planIndex);
-    if (!execution) return { name: "", text: "", report: null, error: `Planned match ${props.planIndex} has not run.` };
+    if (!execution) return { key: "", name: "", text: "", report: null, error: `Planned match ${props.planIndex} has not run.` };
     const built = verifiedExecution(props.run, execution);
-    if ("error" in built) return { name: "", text: "", report: null, error: built.error };
-    return { name: `${execution.cellId}-seed${execution.instanceSeed}-r${execution.replicate}-${execution.executionId}.jsonl`, text: built.text, report: built.report, error: null };
+    if ("error" in built) return { key: "", name: "", text: "", report: null, error: built.error };
+    return { key: execution.executionId, name: `${execution.cellId}-seed${execution.instanceSeed}-r${execution.replicate}-${execution.executionId}.jsonl`, text: built.text, report: built.report, error: null };
   }, [props.imported, props.run, props.planIndex]);
 
   return (
     <section>
       {source?.error ? <p className="notice" role="alert">{source.error}</p> : null}
-      {source?.report ? <ReplayDocument key={source.name} name={source.name} text={source.text} report={source.report} /> : <p>Choose a game from the results table, or import a transcript below.</p>}
+      {source?.report ? <ReplayDocument key={source.key} name={source.name} text={source.text} report={source.report} /> : <p>Choose a game from the results table, or import a transcript below.</p>}
       <ImportPanel imports={props.imports} onImport={props.onImport} onNotice={props.onNotice} />
     </section>
   );
@@ -51,7 +51,7 @@ function ReplayDocument(props: { name: string; text: string; report: Verificatio
   const current = visible[Math.min(step, Math.max(0, visible.length - 1))];
   const metrics = report.recomputed.metrics;
   const canSeeCard = (role: Role) => lens === "operator" || lens === role;
-  const templatesMatch = JSON.stringify(header.templateDigests) === JSON.stringify(templateDigests());
+  const templatesMatch = canonicalJson(header.templateDigests) === canonicalJson(templateDigests());
 
   return (
     <>
