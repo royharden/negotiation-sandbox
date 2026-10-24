@@ -28,15 +28,61 @@ test("catalog seed matches the shipped scenario files", () => {
   }
 });
 
-test("the model function checks the secret before reserving a turn", () => {
-  const source = readFileSync(new URL("../supabase/functions/negotiate-turn/index.ts", import.meta.url), "utf8");
-  const keyAt = source.indexOf("LLM_API_KEY");
-  const reserveAt = source.indexOf("reserve_llm_turn");
-  assert.ok(keyAt >= 0);
-  assert.ok(reserveAt > keyAt);
-  assert.match(source, /missing_secret/);
-  assert.match(source, /redirect:\s*"error"/);
-  assert.equal(source.includes("I accept that package"), false);
+// SQL/source text assertions below are SMOKE CHECKS of the written source. They are not
+// transaction, grant or RLS evidence; that needs a real database with two genuine user clients.
+
+test("smoke: the forward migration declares the service-only ledger, claim and grants", () => {
+  const sql = readFileSync(new URL("../supabase/migrations/20261023190000_v2_artifacts_and_model_calls.sql", import.meta.url), "utf8");
+  assert.match(sql, /create table public\.model_calls/);
+  assert.match(sql, /unique \(owner_id, operation_id\)/);
+  assert.match(sql, /unique \(owner_id, turn_key, attempt_no\)/);
+  assert.match(sql, /pg_advisory_xact_lock/);
+  assert.match(sql, /create or replace function public\.claim_model_attempt/);
+  assert.match(sql, /create or replace function public\.finish_model_attempt/);
+  assert.equal((sql.match(/set search_path = ''/g) ?? []).length, 2);
+  assert.equal((sql.match(/security definer/g) ?? []).length, 2);
+  assert.match(sql, /revoke all on function public\.claim_model_attempt\([^)]*\) from public, anon, authenticated/);
+  assert.match(sql, /revoke all on function public\.finish_model_attempt\([^)]*\) from public, anon, authenticated/);
+  assert.match(sql, /grant execute on function public\.claim_model_attempt\([^)]*\) to service_role/);
+  assert.match(sql, /revoke execute on function public\.reserve_llm_turn\(\) from authenticated/);
+  assert.match(sql, /revoke insert, update, delete on public\.model_calls from anon, authenticated/);
+  assert.match(sql, /model_calls_select on public\.model_calls\s+for select/);
+  assert.equal(/create policy \w+ on public\.model_calls\s+for (insert|update|delete|all)/.test(sql), false);
+  // Reserve on the EXISTING counter under its <= 40 bound; no second counter or competing tables.
+  assert.match(sql, /insert into public\.llm_turn_usage/);
+  assert.match(sql, /where u\.turn_count < 40/);
+  assert.match(sql, /quota_exhausted/);
+  assert.equal(/create table public\.(transcripts|app_config)/.test(sql), false);
+  assert.equal(/drop table/i.test(sql), false);
+  // v2 artifact columns stay nullable with a version-aware shape check and 1 MiB bound.
+  assert.match(sql, /add column artifact_jsonl text,/);
+  assert.match(sql, /octet_length\(artifact_jsonl\) <= 1048576/);
+  assert.match(sql, /runs_owner_execution_idx/);
+  assert.match(sql, /coalesce\(artifact_version, 0\) = 2/);
+  assert.match(sql, /s\.visibility = 'public' or s\.owner_id = \(select auth\.uid\(\)\)/);
+});
+
+test("smoke: the handler checks LLM_API_KEY before claiming and never uses reserve_llm_turn", () => {
+  const handler = readFileSync(new URL("../supabase/functions/negotiate-turn/handler.ts", import.meta.url), "utf8");
+  const entry = readFileSync(new URL("../supabase/functions/negotiate-turn/index.ts", import.meta.url), "utf8");
+  assert.equal(handler.includes("reserve_llm_turn"), false);
+  assert.equal(entry.includes("reserve_llm_turn"), false);
+  const turnStart = handler.indexOf("async function turn(");
+  assert.ok(turnStart > 0);
+  const turnSource = handler.slice(turnStart);
+  const keyAt = turnSource.indexOf("settings.apiKey");
+  const claimAt = turnSource.indexOf("deps.claim(");
+  assert.ok(keyAt >= 0 && claimAt > keyAt);
+  assert.ok(handler.indexOf('env("LLM_API_KEY")') >= 0);
+  assert.match(handler, /missing_secret/);
+  assert.match(handler, /redirect:\s*"error"/);
+  // handler.ts must stay importable from Node: no Deno globals, no npm:/jsr: specifiers.
+  assert.equal(/\bDeno\./.test(handler), false);
+  assert.equal(/from "(npm|jsr):/.test(handler), false);
+  assert.match(entry, /SUPABASE_SERVICE_ROLE_KEY/);
+  assert.match(entry, /auth\.getUser\(token\)/);
+  assert.equal(entry.includes("I accept that package"), false);
+  assert.equal(handler.includes("I accept that package"), false);
 });
 
 function extract(sql: string, tag: string): string {

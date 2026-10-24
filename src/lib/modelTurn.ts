@@ -74,11 +74,13 @@ export function liveSeat(spec: RunSpec, planned: PlannedMatch): Seat {
     if (invoked.error) {
       const { status, body: failure } = await errorBody(invoked.error);
       const message = failure.message ?? failure.error ?? "The model call failed.";
-      if (status === 401 || status === 400 || status === 413 || status === 429 || status === 503) throw new ModelBlocked(message);
+      // Uncertainty wins over every status: a possibly paid request must never be reported as a clean block.
+      const uncertain = failure.uncertain === true || status === null || status === 500;
+      if (!uncertain && (status === 401 || status === 400 || status === 405 || status === 413 || status === 429 || status === 503)) throw new ModelBlocked(message);
       const live: LiveCallInfo | null = failure.modelCallId
         ? { operationId: body.operationId, modelCallId: failure.modelCallId, requestDigest: null, providerModel: null, status: failure.error ?? "error", usage: null, latencyMs: null, outputDigest: null }
         : null;
-      throw new ProviderFailure(message, failure.category ?? failure.error ?? "generic_upstream", live, failure.uncertain === true || status === null);
+      throw new ProviderFailure(message, failure.category ?? failure.error ?? "generic_upstream", live, uncertain);
     }
     const data = invoked.data as Partial<TurnResponse> & Partial<ErrorResponse>;
     if (data.error === "pending" || data.disposition === "existing_pending") {
