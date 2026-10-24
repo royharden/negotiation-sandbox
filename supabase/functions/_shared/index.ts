@@ -26,6 +26,7 @@ export {
   playMatch,
   policySeedsFor,
   ProviderFailure,
+  RAW_TOO_LONG_ERROR,
   runBatch,
   runMatrix,
   scriptedDecide,

@@ -333,4 +333,4 @@ grant execute on function public.finish_model_attempt(uuid, uuid, text, text, te
 
 -- The new live path claims through claim_model_attempt only; never count both. The function and
 -- its history stay in place.
-revoke execute on function public.reserve_llm_turn() from authenticated;
+revoke execute on function public.reserve_llm_turn() from public, anon, authenticated;

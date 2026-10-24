@@ -44,7 +44,7 @@ test("smoke: the forward migration declares the service-only ledger, claim and g
   assert.match(sql, /revoke all on function public\.claim_model_attempt\([^)]*\) from public, anon, authenticated/);
   assert.match(sql, /revoke all on function public\.finish_model_attempt\([^)]*\) from public, anon, authenticated/);
   assert.match(sql, /grant execute on function public\.claim_model_attempt\([^)]*\) to service_role/);
-  assert.match(sql, /revoke execute on function public\.reserve_llm_turn\(\) from authenticated/);
+  assert.match(sql, /revoke execute on function public\.reserve_llm_turn\(\) from public, anon, authenticated/);
   assert.match(sql, /revoke insert, update, delete on public\.model_calls from anon, authenticated/);
   assert.match(sql, /model_calls_select on public\.model_calls\s+for select/);
   assert.equal(/create policy \w+ on public\.model_calls\s+for (insert|update|delete|all)/.test(sql), false);

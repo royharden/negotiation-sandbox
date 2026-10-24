@@ -191,7 +191,8 @@ export type SeatContext = {
   opponent: AgentConfig;
 };
 
-export type SeatDecision = { raw: string; live?: LiveCallInfo | null };
+/** rawTruncated: a model seat's server already bounded an over-long output (its verdict is authoritative). */
+export type SeatDecision = { raw: string; live?: LiveCallInfo | null; rawTruncated?: boolean };
 export type Seat = (context: SeatContext) => SeatDecision | Promise<SeatDecision>;
 
 export type MatchExecution = {
@@ -330,7 +331,8 @@ export async function playMatch(input: {
         return finish("format_failure", role, `agent_error: ${message}`);
       }
       const bounded = boundRaw(decision.raw);
-      const judged = bounded.tooLong
+      const truncated = bounded.tooLong || (config.kind === "model" && decision.rawTruncated === true);
+      const judged = truncated
         ? { ok: false as const, parsed: null, error: RAW_TOO_LONG_ERROR }
         : judgeAttempt(scenario, state, role, bounded.raw);
       attempts.push({
@@ -340,7 +342,7 @@ export async function playMatch(input: {
         attemptNo,
         agentKey: agentKey(config),
         raw: bounded.raw,
-        rawTruncated: bounded.tooLong,
+        rawTruncated: truncated,
         parsed: judged.ok ? judged.action : judged.parsed,
         verdict: judged.ok ? "legal" : "invalid",
         error: judged.ok ? null : judged.error,
