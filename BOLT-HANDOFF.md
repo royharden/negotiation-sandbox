@@ -22,7 +22,7 @@ No secrets in this file. It is the app's single provisioning inventory. Everythi
 | Runtime / package manager | Node >= 22.6 (`package.json` says >= 22; the test script needs type stripping), npm. **No lockfile yet**: the first authorized `npm install` creates it; commit it, then use `npm ci`. |
 | Frozen install / dev | `npm ci` (after the lockfile exists) / `npm run dev` |
 | Build / output | `npm run build` -> `dist/` (Vite default) |
-| Type/lint/tests | `npm run typecheck` (`tsc --noEmit`), `npm test` (`node --experimental-strip-types --test "tests/*.test.ts"`). Latest outcomes: **none run**. Only `node --check` syntax parses of `.ts` files have run. |
+| Type/lint/tests | `npm run typecheck` (`tsc --noEmit`), `npm test` (`node --experimental-strip-types --test "tests/*.test.ts"`). Latest outcomes: **none run**. Only `node --check` (Node 24.18.0) syntax parses of the `.ts` source files have run; `src/vite-env.d.ts` is left to `tsc`. |
 | Client file / public env names | `src/lib/supabase.ts`; `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` |
 | Missing config behavior | Null client + setup banner; Sandbox (scripted and synthetic seats) runs fully in the browser; saving and Live show explicit setup errors. |
 
@@ -31,7 +31,7 @@ No secrets in this file. It is the app's single provisioning inventory. Everythi
 | Order | Exact migration file | Resources / dependencies | Applied status |
 |---|---|---|---|
 | 1 | `supabase/migrations/20261023180000_init.sql` | `pgcrypto`; `set_updated_at()` trigger fn; `scenarios` (public catalog + private owner rows, unique slug indexes, trigger); `runs` (owner rows); `llm_turn_usage` (owner/day counter, `turn_count <= 40`); `reserve_llm_turn()`; RLS policies; grants | pending (never applied) |
-| 2 | `supabase/migrations/20261023190000_v2_artifacts_and_model_calls.sql` | Depends on 1. `runs`: nullable `artifact_version`, `artifact_jsonl`, `run_spec_sha256`, `definition_sha256`, `instance_id`, `execution_id`, `cell_id`, `replicate`, `content_sha256` with conditional checks (legacy rows unchanged; v2 rows need the <= 1 MiB artifact and digests); unique `(owner_id, execution_id)`; widened status/agent checks for v2 rows only; `runs_insert` now also requires `scenario_id` to be public or owned. New `model_calls` ledger (owner SELECT only, no client writes). `claim_model_attempt(...)` and `finish_model_attempt(...)`: SECURITY DEFINER, `search_path ''`, advisory lock per owner, reuse the existing 40/day counter, execute granted to `service_role` only. Revokes `reserve_llm_turn()` from `authenticated` (function kept). | pending (never applied) |
+| 2 | `supabase/migrations/20261023190000_v2_artifacts_and_model_calls.sql` | Depends on 1. `runs`: nullable `artifact_version`, `artifact_jsonl`, `run_spec_sha256`, `definition_sha256`, `instance_id`, `execution_id`, `cell_id`, `replicate`, `content_sha256` with conditional checks (legacy rows unchanged; v2 rows need the <= 1 MiB artifact and digests); unique `(owner_id, execution_id)`; widened status/agent checks for v2 rows only; `runs_insert` now also requires `scenario_id` to be public or owned. New `model_calls` ledger (owner SELECT only, no client writes). `claim_model_attempt(...)` and `finish_model_attempt(...)`: SECURITY DEFINER, `search_path ''`, advisory lock per owner, reuse the existing 40/day counter, execute granted to `service_role` only. Revokes `reserve_llm_turn()` from `public`, `anon` and `authenticated` (function kept). | pending (never applied) |
 
 - Access model: `scenarios` public catalog readable by anon; private scenarios owner-only CRUD. `runs` owner SELECT/INSERT/DELETE, no client UPDATE (saved executions are immutable). `model_calls` owner SELECT only; all writes go through the service-only functions. `llm_turn_usage` has no client access.
 - Ownership checks: `owner_id = auth.uid()` on rows; `runs.scenario_id` must reference a public or same-owner scenario. In `negotiate-turn` the verified owner comes only from `auth.getUser(token)`, never the body; the service client never decides identity.
@@ -83,7 +83,7 @@ All pending. Use synthetic data and authorized accounts.
 | Schema | both migrations applied in order; tables, policies, functions, grants exist | pending |
 | Function round trip | `{op:"config"}` and one model attempt return contract responses; server request digest equals the browser rebuild | pending |
 | Auth/isolation | anon and user B cannot read/insert user A runs or model_calls; authenticated users cannot execute claim/finish or reserve_llm_turn; forged foreign `scenario_id` refused | pending |
-| Missing secret | `503 missing_secret` before any claim, no value disclosure | pending |
+| Missing secret | `{op:"config"}` returns 200 with `liveEnabled: false` and a reason; a validated turn returns `503 missing_secret` before any claim; no value disclosure | pending |
 | Quota/dedup | concurrent claims near the cap: at most one `acquired_new` per operation/turn ordinal, no double charge, 429 at 40 | pending |
 | Uploads / webhooks / jobs | not required | n/a |
 | Publish | not requested | n/a |
