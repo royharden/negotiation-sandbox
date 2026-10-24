@@ -317,8 +317,11 @@ export async function playMatch(input: {
           failureCall = error.live;
           return finish(error.uncertain ? "incomplete" : "provider_error", role, `${error.category}: ${error.message}`);
         }
+        const message = error instanceof Error ? error.message : "seat failed";
+        // A model seat failing unexpectedly may have dispatched a paid request: record it as incomplete.
+        if (config.kind === "model") return finish("incomplete", role, `agent_error: ${message}`);
         // A scripted policy throwing is a recorded policy defect, never replaced with a fallback action.
-        return finish("format_failure", role, `agent_error: ${error instanceof Error ? error.message : "seat failed"}`);
+        return finish("format_failure", role, `agent_error: ${message}`);
       }
       const bounded = boundRaw(decision.raw);
       const judged = bounded.tooLong

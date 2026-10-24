@@ -231,6 +231,12 @@ test("a fixture seat outside its declared cell is refused, and verification flag
   assert.equal(execution.status, "blocked");
   assert.equal(execution.attempts.length, 0, "no authored attempt is replayed against the wrong opponent");
   assert.match(execution.failureReason ?? "", /^fixture_not_applicable/);
+  const verified = verifyTranscript(encodeJsonl(buildTranscript({ spec: built.spec, instance: instance.instance, execution, fixtures: [fixture] })));
+  assert.equal(verified.ok, true);
+  if (verified.ok) {
+    assert.equal(verified.report.verified, false);
+    assert.ok(verified.report.problems.some((problem) => problem.includes("not declared")));
+  }
 });
 
 test("an oversized output is stored as a truncated invalid attempt and still verifies", async () => {

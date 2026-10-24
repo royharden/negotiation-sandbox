@@ -6,6 +6,7 @@ import { verifyInstance } from "./instantiate.ts";
 import { parseJsonStrict } from "./json.ts";
 import { templateDigests } from "./prompt.ts";
 import { buildView, initialState } from "./referee.ts";
+import { REQUEST_LIMITS } from "./request.ts";
 import { boundRaw, judgeAttempt, policySeedsFor, RAW_TOO_LONG_ERROR } from "./runner.ts";
 import type { MatchExecution } from "./runner.ts";
 import { agentClass, agentKey, cellKey, currentVersions, findCell, runSpecDigest, validateRunSpec } from "./runspec.ts";
@@ -287,7 +288,9 @@ export function verifyTranscript(text: string): { ok: false; error: string } | {
       const cursor = fixtureCursors[attempt.role];
       if (cursor) {
         try {
-          if (cursor({ legalTurn: attempt.legalTurn, attemptNo: attempt.attemptNo, standingRole: state.standing?.role ?? null }) !== attempt.raw) {
+          // Compare the bounded form: an authored step over the byte bound is stored as its bounded prefix.
+          const authored = boundRaw(cursor({ legalTurn: attempt.legalTurn, attemptNo: attempt.attemptNo, standingRole: state.standing?.role ?? null }));
+          if (authored.raw !== attempt.raw || authored.tooLong !== attempt.rawTruncated) {
             problems.push(`${where} differs from the authored fixture attempt`);
           }
         } catch (error) {
@@ -300,6 +303,8 @@ export function verifyTranscript(text: string): { ok: false; error: string } | {
     // A truncated attempt stores only its bounded prefix; it is invalid by the size rule and never re-parsed.
     if (boundRaw(attempt.raw).tooLong) problems.push(`${where} raw output exceeds the byte bound`);
     if (attempt.rawTruncated && config.kind === "scripted") problems.push(`${where} is a truncated scripted action`);
+    // boundRaw keeps the prefix within 3 bytes of the bound, so a short raw cannot claim truncation.
+    if (attempt.rawTruncated && utf8Length(attempt.raw) < REQUEST_LIMITS.maxRawOutputBytes - 3) problems.push(`${where} claims truncation but its raw output is short`);
     const judged = attempt.rawTruncated ? { ok: false as const, parsed: null, error: RAW_TOO_LONG_ERROR } : judgeAttempt(scenario, state, attempt.role, attempt.raw);
     const verdict = judged.ok ? "legal" : "invalid";
     if (attempt.verdict !== verdict) problems.push(`${where} verdict ${String(attempt.verdict)} does not reproduce (${verdict})`);
@@ -322,8 +327,9 @@ export function verifyTranscript(text: string): { ok: false; error: string } | {
 
   const footer = hasFooter ? (last as unknown as TranscriptFooter) : null;
   if (status === null && state.terminal) status = "complete";
-  if (status === null && !pendingRepair) {
+  if (status === null && !pendingRepair && footer?.status !== "cancelled") {
     // A scripted policy that throws is a recorded policy defect (format_failure, agent_error) and is recomputable.
+    // An explicit cancellation recorded before that turn keeps its cancelled status.
     const next = cell.roles[state.nextRole];
     if (next.kind === "scripted") {
       try {
