@@ -2,7 +2,7 @@
 
 A small, operator-controlled sandbox for two-party, multi-issue negotiation. Scenario files are data. A deterministic referee enforces offers, acceptance and walking away. Structured claims an agent makes about its own private card are checked against that card. Every match produces a JSONL transcript that replays and recomputes without any model call, and a pairing table compares configurations on the same sampled instances.
 
-> **Status: Dirty Mode construction - runtime unverified.** Source and tests are written. Nothing has been installed, type-checked, built, tested, started, migrated or deployed. The only executed check is a syntax parse of the `.ts` files with `node --check` (Node 24). `.tsx` files have only been inspected. See [docs/DEFERRED-VALIDATION.md](docs/DEFERRED-VALIDATION.md). No result numbers appear in this README because the sample generator has not run.
+> **Status: Dirty Mode construction - runtime unverified.** Source and tests are written. Nothing has been installed, type-checked, built, tested, started, migrated or deployed. The only executed check is a syntax parse of the `.ts` source files with `node --check` (Node 24); the declaration file `src/vite-env.d.ts` cannot be parsed that way and is left to `tsc`. `.tsx` files have only been inspected. See [docs/DEFERRED-VALIDATION.md](docs/DEFERRED-VALIDATION.md). No result numbers appear in this README because the sample generator has not run.
 
 "Private" means absent from the counterpart agent's observation and model request. The browser operator configures and sees both cards, and full exports contain them. This is an owner-supplied simulation, not server-authoritative secret execution and not proof that an unedited provider produced a whole match.
 
@@ -30,7 +30,7 @@ A small, operator-controlled sandbox for two-party, multi-issue negotiation. Sce
 
 ## Run it (after installation is authorized)
 
-Node 22 or newer. Work in this folder.
+Node 22.6 or newer (built-in type stripping). Work in this folder.
 
 ```powershell
 npm install          # first install creates the lockfile; use npm ci afterwards

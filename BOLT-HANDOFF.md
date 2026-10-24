@@ -19,7 +19,7 @@ No secrets in this file. It is the app's single provisioning inventory. Everythi
 
 | Item | Exact command or configuration name |
 |---|---|
-| Runtime / package manager | Node >= 22 (`package.json` engines), npm. **No lockfile yet**: the first authorized `npm install` creates it; commit it, then use `npm ci`. |
+| Runtime / package manager | Node >= 22.6 (`package.json` says >= 22; the test script needs type stripping), npm. **No lockfile yet**: the first authorized `npm install` creates it; commit it, then use `npm ci`. |
 | Frozen install / dev | `npm ci` (after the lockfile exists) / `npm run dev` |
 | Build / output | `npm run build` -> `dist/` (Vite default) |
 | Type/lint/tests | `npm run typecheck` (`tsc --noEmit`), `npm test` (`node --experimental-strip-types --test "tests/*.test.ts"`). Latest outcomes: **none run**. Only `node --check` syntax parses of `.ts` files have run. |
@@ -44,7 +44,7 @@ No secrets in this file. It is the app's single provisioning inventory. Everythi
 
 | Name / source | Caller + auth | Input / output | Resources + secret names | Deploy config |
 |---|---|---|---|---|
-| `negotiate-turn`; `supabase/functions/negotiate-turn/index.ts` (entry) + `handler.ts` (logic) + `../_shared/*.ts` (engine) | Browser with a signed-in user JWT. Gateway `verify_jwt = true` plus handler `auth.getUser(token)`. | Contract `supabase/functions/_shared/liveContract.ts`: `{op:"config"}` -> safe preflight; `{op:"turn", runSpec, executionId, cellId, instanceSeed, replicate, role, legalHistory, attemptNo, operationId, repairOf}` -> `TurnResponse` or `ErrorResponse` | `model_calls`, `llm_turn_usage` via service-only RPCs; secrets `LLM_API_KEY`, `LLM_ALLOWED_MODELS`, `LLM_ALLOWED_HOSTS`, `LLM_BASE_URL`, `LLM_MODEL`, `APP_ORIGIN`; platform `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` | `supabase/config.toml`: `[functions.negotiate-turn] verify_jwt = true`. **Unverified:** whether Bolt's function bundler includes the relative `../_shared/` imports. If it cannot, move the canonical engine and update both consumers; never fork a second engine. |
+| `negotiate-turn`; `supabase/functions/negotiate-turn/index.ts` (entry) + `handler.ts` (logic) + `../_shared/*.ts` (engine) | Browser with a signed-in user JWT. Gateway `verify_jwt = true` plus handler `auth.getUser(token)`. | Contract `supabase/functions/_shared/liveContract.ts`: `{op:"config"}` -> safe preflight; `{op:"turn", runSpec, executionId, cellId, instanceSeed, replicate, role, legalHistory, attemptNo, operationId, repairOf}` -> `TurnResponse` or `ErrorResponse` | `model_calls`, `llm_turn_usage` via service-only RPCs plus service-role SELECT of both (ledger reads, usage preflight); secrets `LLM_API_KEY`, `LLM_ALLOWED_MODELS`, `LLM_ALLOWED_HOSTS`, `LLM_BASE_URL`, `LLM_MODEL`, `APP_ORIGIN`; platform `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` | `supabase/config.toml`: `[functions.negotiate-turn] verify_jwt = true`. **Unverified:** whether Bolt's function bundler includes the relative `../_shared/` imports. If it cannot, move the canonical engine and update both consumers; never fork a second engine. |
 
 - CORS/preflight: POST and OPTIONS; `Access-Control-Allow-Origin` only for origins listed in `APP_ORIGIN` (none when unset). Headers `authorization, content-type, apikey, x-client-info`.
 - Identity/ownership and abuse controls: JWT + getUser; full validation (run spec, cell is a model seat with an allowlisted model, seed/replicate in spec, legal-history replay, terminal/turn checks) before any claim; 100 KiB body read cap; 24,000-byte rendered request cap; 500 output tokens; 20 s timeout; 64 KiB response read; redirects refused; exact host allowlist (not complete SSRF proof).
@@ -63,7 +63,7 @@ No secrets in this file. It is the app's single provisioning inventory. Everythi
 | `LLM_MODEL` | negotiate-turn | optional default; must be in the allowlist | owner |
 | `APP_ORIGIN` | negotiate-turn | required for browser calls (deployed origin(s)) | Bolt hosting URL |
 
-Missing-secret behavior: `503 missing_secret` / `live_disabled` before any quota claim; no fabricated or scripted response. Only public configuration goes in frontend env.
+Missing-secret behavior: `{op:"config"}` returns 200 with `liveEnabled: false` and a `disabledReason`; a validated `{op:"turn"}` returns `503 missing_secret` / `live_disabled` before any quota claim. No fabricated or scripted response. Only public configuration goes in frontend env.
 
 ## Auth, storage, and external steps
 
@@ -98,4 +98,4 @@ All pending. Use synthetic data and authorized accounts.
 > gaps and owner/external blockers. Preserve the app design and existing database/data. Prepare
 > a reviewable setup plan with actual file/resource names and pending checks. Do not create or
 > change cloud resources, apply migrations, deploy functions, enter secrets, enable schedules,
-> or publish. Do not describe proposed resources or unexecuted checks as complete.
+> make paid provider calls, or publish. Do not describe proposed resources or unexecuted checks as complete.

@@ -2,7 +2,7 @@
 
 Built under Dirty Mode (static-only construction, 2026-10-23). This is the handoff list of what has **not** been proven. Nothing here has passed; missing output is not a pass. Record each later command and its real result next to its row.
 
-What did run: `node --check` (Node 24.18.0, built-in type stripping) on every `.ts` file under `supabase/functions/`, `src/` (`.ts` only), `tests/` and `scripts/`. That is a syntax parse, not a type check. `.tsx` files were only inspected. Independent static reviews of each package are logged in the outer `STATUS.md`.
+What did run: `node --check` (Node 24.18.0, built-in type stripping) on the `.ts` source files under `supabase/functions/`, `src/`, `tests/` and `scripts/`, except the declaration file `src/vite-env.d.ts`, which `node --check` cannot parse (it rejects `interface` in a `.d.ts`) and which is left to `tsc`. That is a syntax parse, not a type check. `.tsx` files were only inspected. Independent static reviews of each package are logged in the outer `STATUS.md`.
 
 | Component | Pending assumption or skipped check | Later activation step |
 |---|---|---|
