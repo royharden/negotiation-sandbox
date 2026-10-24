@@ -78,6 +78,7 @@ export function Bench(props: {
       state: "running",
       startedAt: new Date().toISOString(),
     };
+    let latest = base;
     setRunning(base);
     props.onRun(base);
     setError(null);
@@ -91,6 +92,7 @@ export function Bench(props: {
         seatsFor: (cell, planned) => seatsFor(cell, fixtures, live ? () => liveSeat(spec, planned) : null),
         onProgress: (progress) => {
           const next = { ...base, executions: [...progress.done] };
+          latest = next;
           setRunning(next);
           props.onRun(next);
         },
@@ -102,6 +104,8 @@ export function Bench(props: {
       navigate("results", { run: done.runId });
     } catch (problem) {
       setRunning(null);
+      // Keep the finished matches and mark the run stopped so it can still be saved or exported.
+      props.onRun({ ...latest, state: "cancelled" });
       setError(problem instanceof Error ? problem.message : "The run stopped.");
     }
   }

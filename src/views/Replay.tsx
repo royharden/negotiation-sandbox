@@ -88,7 +88,7 @@ function ReplayDocument(props: { name: string; text: string; report: Verificatio
 
       {visible.length === 0 ? <p>No attempts are visible in this lens.</p> : current ? (
         <div className="panel">
-          <p>Step {Math.min(step, visible.length - 1) + 1} of {visible.length}: legal turn {current.legalTurn + 1}, attempt {current.attemptNo}, {label(current.role)} ({current.role})</p>
+          <p>Step {Math.min(step, visible.length - 1) + 1} of {visible.length}: legal turn {current.legalTurn + 1}{lens === "operator" || lens === current.role ? `, attempt ${current.attemptNo}` : ""}, {label(current.role)} ({current.role})</p>
           <dl className="turn">
             {lens !== "public" ? (<><dt>Verdict</dt><dd className={current.verdict === "legal" ? "good" : "bad"}>{current.verdict}{current.error ? `: ${current.error}` : ""}{current.rawTruncated ? " (output truncated at 8 KiB)" : ""}</dd></>) : null}
             <dt>Action</dt><dd>{current.parsed?.type ?? "unparsed"}</dd>

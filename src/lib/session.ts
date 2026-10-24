@@ -20,6 +20,8 @@ export function useSession(): SessionState {
   useEffect(() => {
     if (!supabase) return undefined;
     let cancel = false;
+    // A recovery link puts type=recovery in the URL hash; remember it before the client consumes the hash.
+    let recoveryLink = window.location.hash.includes("type=recovery");
     supabase.auth.getSession().then(({ data, error }) => {
       if (cancel) return;
       if (error) {
@@ -28,14 +30,12 @@ export function useSession(): SessionState {
       }
       const user = data.session?.user;
       setState(user
-        ? { status: "ready", email: user.email ?? null, userId: user.id, error: null }
+        ? { status: "ready", email: user.email ?? null, userId: user.id, error: null, recovery: recoveryLink }
         : signedOut);
     }).catch((error: unknown) => {
       if (cancel) return;
       setState({ ...signedOut, error: error instanceof Error ? error.message : "Could not read the session." });
     });
-    // A recovery link puts type=recovery in the URL hash; remember it before the client consumes the hash.
-    let recoveryLink = window.location.hash.includes("type=recovery");
     const { data } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === "USER_UPDATED") recoveryLink = false;
       const user = session?.user;

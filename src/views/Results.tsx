@@ -47,12 +47,17 @@ export function Results(props: { runs: RunRecord[]; run: RunRecord | null; sessi
     setSaving(true);
     const messages: string[] = [];
     let saved = 0;
-    for (const execution of run.executions) {
-      const message = await saveExecution(props.session.userId, run, execution);
-      if (message) messages.push(`#${execution.planIndex}: ${message}`);
-      else saved += 1;
+    try {
+      for (const execution of run.executions) {
+        const message = await saveExecution(props.session.userId, run, execution);
+        if (message) messages.push(`#${execution.planIndex}: ${message}`);
+        else saved += 1;
+      }
+    } catch (problem) {
+      messages.push(problem instanceof Error ? problem.message : "The save stopped.");
+    } finally {
+      setSaving(false);
     }
-    setSaving(false);
     props.onNotice(`Saved ${saved} of ${run.executions.length} executions.${messages.length ? ` ${messages.join(" ")}` : ""} The in-memory results are unchanged.`);
   }
 
@@ -122,7 +127,13 @@ export function Results(props: { runs: RunRecord[]; run: RunRecord | null; sessi
                     {execution ? (
                       <>
                         <a href={`/?page=replay&run=${run.runId}&plan=${row.planIndex}`} onClick={(event) => { event.preventDefault(); navigate("replay", { run: run.runId, plan: String(row.planIndex) }); }}>Replay</a>{" "}
-                        <button type="button" className="link" onClick={() => downloadText(`${row.cellId}-seed${row.instanceSeed}-r${row.replicate}-${execution.executionId}.jsonl`, transcriptText(run, execution), "application/x-ndjson")}>JSONL</button>
+                        <button type="button" className="link" onClick={() => {
+                          try {
+                            downloadText(`${row.cellId}-seed${row.instanceSeed}-r${row.replicate}-${execution.executionId}.jsonl`, transcriptText(run, execution), "application/x-ndjson");
+                          } catch (problem) {
+                            props.onNotice(problem instanceof Error ? problem.message : "The transcript could not be exported.");
+                          }
+                        }}>JSONL</button>
                       </>
                     ) : null}
                   </td>
