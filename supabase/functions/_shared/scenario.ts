@@ -282,7 +282,7 @@ function parseRules(value: unknown): { ok: true; rules: Rules } | { ok: false; e
 
 type Parsed<T> = { ok: true; value: T } | { ok: false; error: string };
 
-const ISSUE_ID_PATTERN = /^[A-Za-z_][A-Za-z0-9_-]*$/;
+const ISSUE_ID_PATTERN = /^(?!__proto__$|constructor$|prototype$)[A-Za-z_][A-Za-z0-9_-]*$/;
 const VARIATION_FIELDS: readonly VariationField[] = ["reservation", "number-min-score", "number-max-score", "choice-score"];
 
 /** Parse pasted/loaded scenario JSON text: size cap, duplicate-key rejection, then the versioned parser. */
@@ -479,7 +479,7 @@ function parsePartyV2(value: unknown, role: Role, issues: Issue[]): Parsed<Party
       if (!atMin.ok) return atMin;
       const atMax = boundedNumber(raw.atMax, `${role} ${issue.id} atMax`);
       if (!atMax.ok) return atMax;
-      scores[issue.id] = { kind: "number", atMin: atMin.value, atMax: atMax.value };
+      Object.defineProperty(scores, issue.id, { value: { kind: "number", atMin: atMin.value, atMax: atMax.value }, enumerable: true, writable: true, configurable: true });
       continue;
     }
     if (!exactKeys(raw, ["kind", "options"]) || raw.kind !== "choice" || !isRecord(raw.options)) {
@@ -496,7 +496,7 @@ function parsePartyV2(value: unknown, role: Role, issues: Issue[]): Parsed<Party
       if (!points.ok) return points;
       Object.defineProperty(options, option, { value: points.value, enumerable: true, writable: true, configurable: true });
     }
-    scores[issue.id] = { kind: "choice", options };
+    Object.defineProperty(scores, issue.id, { value: { kind: "choice", options }, enumerable: true, writable: true, configurable: true });
   }
   const card: PrivateCard = { reservationUtility: reservation.value, scores };
   return { ok: true, value: { label, publicBrief, private: card } };

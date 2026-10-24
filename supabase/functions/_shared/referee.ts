@@ -232,7 +232,7 @@ function parseClaims(value: unknown, ruleset: 1 | 2): { ok: true; claims: Claim[
 function parseClaim(value: unknown, ruleset: 1 | 2): { ok: true; claim: Claim } | { ok: false; error: string } {
   if (!isRecord(value) || typeof value.about !== "string") return { ok: false, error: "claim must be an object" };
   if (!isFiniteNumber(value.stated)) return { ok: false, error: "claim stated must be a finite number" };
-  if (Math.abs(value.stated) > 1_000_000) return { ok: false, error: "claim stated must be within +/-1000000" };
+  if (ruleset === 2 && Math.abs(value.stated) > 1_000_000) return { ok: false, error: "claim stated must be within +/-1000000" };
   if (value.about === "reservation") {
     if (ruleset === 1) {
       if (!exactKeys(value, ["about", "stated"])) return { ok: false, error: "reservation claim has unknown fields" };

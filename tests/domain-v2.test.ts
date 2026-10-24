@@ -8,8 +8,8 @@ import { canonicalJson, fnv1a32, sha256Hex, utf8 } from "../supabase/functions/_
 import { instantiate } from "../supabase/functions/_shared/instantiate.ts";
 import { parseJsonStrict, parseWholeJsonOutput } from "../supabase/functions/_shared/json.ts";
 import { applyAction, buildView, initialState, parseAction, parseActionText, replay } from "../supabase/functions/_shared/referee.ts";
-import { drawInt, policySeedFor, xorshift32 } from "../supabase/functions/_shared/rng.ts";
-import { parseDefinition, parseScenarioText } from "../supabase/functions/_shared/scenario.ts";
+import { drawInt, instanceStreamParts, policySeedFor, streamFromParts, xorshift32 } from "../supabase/functions/_shared/rng.ts";
+import { parseDefinition, parseScenarioText, variationKey } from "../supabase/functions/_shared/scenario.ts";
 import { scoreMatch } from "../supabase/functions/_shared/score.ts";
 import type { GameState, PublicTurn, Scenario, ScenarioDefinition } from "../supabase/functions/_shared/types.ts";
 import { gridValues, numberOnGrid } from "../supabase/functions/_shared/utility.ts";
@@ -43,6 +43,17 @@ test("hash primitives match published known answers", () => {
   assert.equal(fnv1a32(utf8("")), 0x811c9dc5);
   assert.equal(fnv1a32(utf8("a")), 0xe40c292c);
   assert.equal(xorshift32(1), 270369);
+});
+
+test("sampler stream encoding is pinned: newline-joined UTF-8 parts, FNV-1a seed, xorshift draw", () => {
+  const parts = instanceStreamParts("nsb-instance-v1", "d".repeat(64), 7, '{"field":"reservation","issueId":null,"option":null,"role":"buyer"}');
+  assert.deepEqual(parts, ["nsb-instance-v1", "d".repeat(64), "7", '{"field":"reservation","issueId":null,"option":null,"role":"buyer"}']);
+  const expected = xorshift32(fnv1a32(utf8(parts.join("\n"))));
+  assert.equal(streamFromParts(parts).next(), expected);
+  assert.notEqual(streamFromParts(parts).next(), xorshift32(fnv1a32(utf8(parts.join("|")))), "the separator is part of the encoding");
+  assert.equal(variationKey({ role: "buyer", field: "reservation" }), parts[3]);
+  // Targets are applied in canonical-key order; this pins that "field" sorts before "role" in the key.
+  assert.ok(variationKey({ role: "seller", field: "choice-score", issueId: "a", option: "x" }) < variationKey({ role: "buyer", field: "reservation" }));
 });
 
 test("rejection sampling discards the biased tail instead of using modulo alone", () => {
