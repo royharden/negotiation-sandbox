@@ -1,4 +1,7 @@
 export { scriptedAction } from "./agents.ts";
+export { fraction, isAttempted, isResolved, pairedDifferences, resultRows, stats, summarizeCells } from "./aggregate.ts";
+export type { CellSummary, Fraction, PairedDelta, ResultRow, Stats } from "./aggregate.ts";
+export { csvCell, gamesCsv, termsSummary, toCsv, turnsCsv } from "./csv.ts";
 export { bootstrapMean, summarizePairings } from "./bootstrap.ts";
 export { analyzeClaims, analyzeDeception, claimIsTrue, claimTolerance, claimTruth, ownNumberCandidate } from "./deception.ts";
 export type { ClaimAnalysis, ClaimEvidence } from "./deception.ts";

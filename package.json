@@ -10,7 +10,8 @@
     "dev": "vite",
     "build": "vite build",
     "typecheck": "tsc --noEmit",
-    "test": "node --experimental-strip-types --test \"tests/*.test.ts\""
+    "test": "node --experimental-strip-types --test \"tests/*.test.ts\"",
+    "sample-results": "node --experimental-strip-types scripts/sample-results.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.49.1",
