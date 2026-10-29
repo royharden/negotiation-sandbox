@@ -1,15 +1,19 @@
 import { useEffect, useState } from "react";
+import { verifyTranscript } from "../engine.ts";
 import { pairingLabel } from "../format.ts";
 import { deleteRun, loadRuns, type SavedRun } from "../lib/repository.ts";
 import type { SessionState } from "../lib/session.ts";
 import { supabase, supabaseConfigError } from "../lib/supabase.ts";
 import { navigate } from "../route.ts";
+import { newId } from "../runState.ts";
+import type { ImportedTranscript } from "../runState.ts";
 import type { SessionBatch } from "../savedBatch.ts";
 import { savedToBatch } from "../savedBatch.ts";
 
 export function Account(props: {
   session: SessionState;
-  onReplay: (batch: SessionBatch) => void;
+  onLegacyReplay: (batch: SessionBatch) => void;
+  onImport: (item: ImportedTranscript) => void;
   onNotice: (message: string | null) => void;
 }) {
   const [email, setEmail] = useState("");
@@ -79,9 +83,32 @@ export function Account(props: {
     }
   }
 
+  function openRun(run: SavedRun) {
+    if (run.artifactVersion === 2 && run.artifactJsonl) {
+      // The stored listing columns are a cache; the artifact is re-verified and recomputed on every load.
+      const verified = verifyTranscript(run.artifactJsonl);
+      if (!verified.ok) {
+        setError(`Saved run ${run.id} does not load: ${verified.error}`);
+        return;
+      }
+      const item: ImportedTranscript = { id: newId(), name: `saved-${run.executionId ?? run.id}.jsonl`, text: run.artifactJsonl, report: verified.report };
+      props.onImport(item);
+      navigate("replay", { import: item.id });
+      return;
+    }
+    const batch = savedToBatch(run);
+    if (!batch.ok) {
+      setError(batch.error);
+      return;
+    }
+    props.onLegacyReplay(batch.batch);
+    navigate("replay", { legacy: "1", row: "0" });
+  }
+
   return (
     <section className="panel">
       <h2>Account</h2>
+      {props.session.recovery ? <p className="notice" role="alert">Password recovery link accepted. Set a new password below.</p> : null}
       {supabaseConfigError ? <p>{supabaseConfigError}</p> : null}
       {props.session.status === "loading" ? <p>Checking the session…</p> : null}
       {props.session.status === "ready" ? (
@@ -117,16 +144,9 @@ export function Account(props: {
               {runs.map((run) => (
                 <li key={run.id}>
                   {run.scenarioSlug}, seed {run.seed}, {pairingLabel(run.buyerAgent, run.sellerAgent)}, {run.status}
+                  {run.artifactVersion === 2 ? " (v2 artifact)" : " (legacy v1 row)"}
                   <div className="actions">
-                    <button type="button" onClick={() => {
-                      const batch = savedToBatch(run);
-                      if (!batch.ok) {
-                        setError(batch.error);
-                        return;
-                      }
-                      props.onReplay(batch.batch);
-                      navigate("replay", { row: "0" });
-                    }}>Replay</button>
+                    <button type="button" onClick={() => openRun(run)}>Replay</button>
                     <button type="button" className="secondary" onClick={() => void deleteRun(run.id).then((message) => {
                       if (message) setError(message);
                       else setRuns((current) => current.filter((item) => item.id !== run.id));

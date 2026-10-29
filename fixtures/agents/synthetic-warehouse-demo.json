@@ -1,0 +1,32 @@
+{
+  "fixtureVersion": 1,
+  "id": "synthetic-warehouse-demo",
+  "label": "Hand-authored synthetic data, not recorded LLM output. Shows an illegal accept, validation feedback, one repair and a false structured claim.",
+  "compatible": {
+    "definitionId": "warehouse-lease-v2",
+    "schemaVersion": 2,
+    "instanceSeeds": [1],
+    "role": "buyer",
+    "opponent": { "kind": "scripted", "policy": "concession", "policyVersion": "nsb-policy-v1" }
+  },
+  "steps": [
+    {
+      "legalTurn": 0,
+      "attemptNo": 1,
+      "expectStandingRole": null,
+      "raw": "{\"type\":\"accept\",\"note\":\"Deal.\"}"
+    },
+    {
+      "legalTurn": 0,
+      "attemptNo": 2,
+      "expectStandingRole": null,
+      "raw": "{\"type\":\"offer\",\"terms\":{\"rent\":5200,\"term\":\"24\",\"deposit\":0},\"note\":\"Opening at 5200 with no deposit.\",\"claims\":[{\"about\":\"reservation\",\"relation\":\"eq\",\"stated\":60}]}"
+    },
+    {
+      "legalTurn": 2,
+      "attemptNo": 1,
+      "expectStandingRole": "seller",
+      "raw": "{\"type\":\"walk\",\"note\":\"We are too far apart.\"}"
+    }
+  ]
+}

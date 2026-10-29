@@ -5,7 +5,7 @@ const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY?.trim() ?? "";
 
 export const supabaseConfigError = url && anonKey
   ? null
-  : "Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to save runs and call a model. Scripted games still run in this browser.";
+  : "Setup: Sandbox works now with no configuration. Saving runs and Live model seats need VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY (Bolt Database), a signed-in owner, and server secrets on negotiate-turn.";
 
 export const supabase: SupabaseClient | null = url && anonKey
   ? createClient(url, anonKey, {

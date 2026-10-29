@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 2,
+  "rulesetVersion": 2,
+  "id": "warehouse-lease-v2",
+  "title": "Warehouse lease (v2, sampled cards)",
+  "publicBrief": "A tenant and a landlord negotiate a short commercial lease. Issue bounds are public. Each side's scores and reservation stay private, and each instance seed samples small offsets to both cards.",
+  "issues": [
+    { "id": "rent", "label": "Monthly rent", "kind": "number", "min": 4000, "max": 8000, "step": 100, "unit": "USD" },
+    { "id": "term", "label": "Term in months", "kind": "choice", "options": ["12", "24", "36"] },
+    { "id": "deposit", "label": "Deposit months", "kind": "number", "min": 0, "max": 3, "step": 1 }
+  ],
+  "parties": {
+    "buyer": {
+      "label": "Tenant",
+      "publicBrief": "You need usable space this quarter and would rather not tie up cash in a deposit.",
+      "private": {
+        "reservationUtility": 42,
+        "scores": {
+          "rent": { "kind": "number", "atMin": 50, "atMax": 0 },
+          "term": { "kind": "choice", "options": { "12": 8, "24": 22, "36": 14 } },
+          "deposit": { "kind": "number", "atMin": 15, "atMax": 0 }
+        }
+      }
+    },
+    "seller": {
+      "label": "Landlord",
+      "publicBrief": "You would rather sign a lease than keep the building vacant.",
+      "private": {
+        "reservationUtility": 37,
+        "scores": {
+          "rent": { "kind": "number", "atMin": 0, "atMax": 50 },
+          "term": { "kind": "choice", "options": { "12": 6, "24": 16, "36": 28 } },
+          "deposit": { "kind": "number", "atMin": 0, "atMax": 15 }
+        }
+      }
+    }
+  },
+  "rules": { "maxRounds": 6, "openingRole": "buyer" },
+  "variation": [
+    { "role": "buyer", "field": "reservation", "jitterMin": -3, "jitterMax": 3 },
+    { "role": "seller", "field": "reservation", "jitterMin": -3, "jitterMax": 3 },
+    { "role": "buyer", "field": "choice-score", "issueId": "term", "option": "24", "jitterMin": -2, "jitterMax": 2 },
+    { "role": "seller", "field": "choice-score", "issueId": "term", "option": "36", "jitterMin": -2, "jitterMax": 2 },
+    { "role": "buyer", "field": "number-min-score", "issueId": "rent", "jitterMin": -5, "jitterMax": 5 }
+  ]
+}

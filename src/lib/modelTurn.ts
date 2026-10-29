@@ -1,81 +1,109 @@
-import {
-  applyAction,
-  FormatFailure,
-  ModelBlocked,
-  parseActionJson,
-  replay,
-  scriptedAction,
-  type Action,
-  type AgentId,
-  type AgentView,
-  type Scenario,
-  type ScriptedId,
-} from "../engine.ts";
+import { ModelBlocked, ProviderFailure, RAW_TOO_LONG_ERROR } from "../engine.ts";
+import type { ConfigResponse, ErrorResponse, LiveCallInfo, PlannedMatch, RunSpec, Seat, TurnRequest, TurnResponse } from "../engine.ts";
+import { newId } from "../runState.ts";
 import { supabase } from "./supabase.ts";
 
-export function modelDecide(scenario: Scenario) {
-  return async (pairing: { buyer: AgentId; seller: AgentId }, view: AgentView): Promise<Action> => {
-    const agent = pairing[view.role];
-    if (isScripted(agent)) return scriptedAction(agent, view);
-    if (!supabase) {
-      throw new ModelBlocked("Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY before using a model.");
-    }
-    const session = await supabase.auth.getSession();
-    if (session.error) throw new ModelBlocked(session.error.message);
-    if (!session.data.session) throw new ModelBlocked("Sign in before using a model.");
+/**
+ * Browser side of the Live seam (contract: supabase/functions/_shared/liveContract.ts).
+ * No blind retries: every attempt uses a fresh operation id exactly once, and an uncertain or pending
+ * result stops the match as incomplete instead of re-sending a possibly paid request.
+ */
 
-    let lastError = "The model did not return a legal action.";
-    for (let attempt = 0; attempt < 3; attempt += 1) {
-      const invoked = await supabase.functions.invoke("negotiate-turn", {
-        body: { scenario, role: view.role, history: view.history, seed: view.seed },
-      });
-      if (invoked.error) throw new ModelBlocked(await invokeMessage(invoked.error));
-      const content = readContent(invoked.data);
-      if (!content) {
-        lastError = "The model response did not include content.";
-        continue;
-      }
-      const parsed = parseActionJson(content);
-      if (!parsed.ok) {
-        lastError = parsed.error;
-        continue;
-      }
-      const current = replay(scenario, view.history);
-      if (!current.ok) throw new FormatFailure(current.error);
-      const trial = applyAction(scenario, current.state, view.role, parsed.action);
-      if (!trial.ok) {
-        lastError = trial.error;
-        continue;
-      }
-      return parsed.action;
-    }
-    throw new FormatFailure(lastError);
-  };
+async function requireSession(): Promise<void> {
+  if (!supabase) throw new ModelBlocked("Live needs VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY. No scripted move was substituted.");
+  const session = await supabase.auth.getSession();
+  if (session.error) throw new ModelBlocked(session.error.message);
+  if (!session.data.session) throw new ModelBlocked("Sign in before running a Live cell. No scripted move was substituted.");
 }
 
-function isScripted(agent: AgentId): agent is ScriptedId {
-  return agent !== "model";
-}
-
-function readContent(data: unknown): string {
-  if (!data || typeof data !== "object" || !("content" in data)) return "";
-  const content = (data as { content?: unknown }).content;
-  return typeof content === "string" ? content : "";
-}
-
-async function invokeMessage(error: unknown): Promise<string> {
+async function errorBody(error: unknown): Promise<{ status: number | null; body: Partial<ErrorResponse> }> {
   if (error && typeof error === "object" && "context" in error) {
     const context = (error as { context?: unknown }).context;
     if (context instanceof Response) {
       try {
-        const body = await context.clone().json() as { message?: unknown; error?: unknown };
-        if (typeof body.message === "string" && body.message.trim()) return body.message;
-        if (typeof body.error === "string") return body.error;
+        return { status: context.status, body: await context.clone().json() as Partial<ErrorResponse> };
       } catch {
-        // The body was not JSON.
+        return { status: context.status, body: {} };
       }
     }
   }
-  if (error instanceof Error && error.message.trim()) return error.message;
-  return "The model call failed.";
+  return { status: null, body: { message: error instanceof Error ? error.message : "The model call failed." } };
+}
+
+/** Safe preflight: allowlisted models and today's remaining allowance. Never secrets or cards. */
+export async function fetchLiveConfig(): Promise<{ ok: true; config: ConfigResponse } | { ok: false; error: string }> {
+  try {
+    await requireSession();
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : "Live is unavailable." };
+  }
+  const invoked = await supabase!.functions.invoke("negotiate-turn", { body: { op: "config" } });
+  if (invoked.error) {
+    const { body } = await errorBody(invoked.error);
+    return { ok: false, error: body.message ?? body.error ?? "The Live preflight failed." };
+  }
+  return { ok: true, config: invoked.data as ConfigResponse };
+}
+
+/** A Live seat for one planned match. The server builds and hashes the request; the browser never sees secrets. */
+export function liveSeat(spec: RunSpec, planned: PlannedMatch): Seat {
+  return async (context) => {
+    await requireSession();
+    const body: TurnRequest = {
+      op: "turn",
+      runSpec: spec,
+      executionId: context.executionId,
+      cellId: planned.cellId,
+      instanceSeed: planned.instanceSeed,
+      replicate: planned.replicate,
+      role: context.role,
+      legalHistory: context.state.history,
+      attemptNo: context.attemptNo,
+      operationId: newId(),
+      repairOf: context.attemptNo === 2 ? context.repairOf : null,
+    };
+    if (body.attemptNo === 2 && !body.repairOf) {
+      throw new ProviderFailure("The first attempt has no server call id, so a repair cannot be linked.", "generic_upstream");
+    }
+    let invoked;
+    try {
+      invoked = await supabase!.functions.invoke("negotiate-turn", { body });
+    } catch {
+      throw new ProviderFailure("The request may have reached the server; its result is unknown.", "generic_upstream", null, true);
+    }
+    if (invoked.error) {
+      const { status, body: failure } = await errorBody(invoked.error);
+      const message = failure.message ?? failure.error ?? "The model call failed.";
+      // Uncertainty wins over every status: a possibly paid request must never be reported as a clean block.
+      // 409: an earlier, possibly paid call already exists for this turn.
+      const uncertain = failure.uncertain === true || status === null || status === 500 || status === 409;
+      if (!uncertain && (status === 401 || status === 400 || status === 405 || status === 413 || status === 429 || status === 503)) throw new ModelBlocked(message);
+      const live: LiveCallInfo | null = failure.modelCallId
+        ? { operationId: body.operationId, modelCallId: failure.modelCallId, requestDigest: null, providerModel: null, status: failure.error ?? "error", usage: null, latencyMs: null, outputDigest: null }
+        : null;
+      throw new ProviderFailure(message, failure.category ?? failure.error ?? "generic_upstream", live, uncertain);
+    }
+    const data = invoked.data as Partial<Omit<TurnResponse, "disposition">> & Partial<ErrorResponse>;
+    if (data.error === "pending" || data.disposition === "existing_pending") {
+      throw new ProviderFailure("A matching request is still pending on the server; nothing was re-sent.", "generic_upstream", null, true);
+    }
+    if (typeof data.content !== "string" || typeof data.modelCallId !== "string") {
+      throw new ProviderFailure("The function response was malformed.", "malformed_response", null, true);
+    }
+    return {
+      raw: data.content,
+      // The server bounded an over-long output and judged it invalid; keep that verdict rather than re-parse a prefix.
+      rawTruncated: data.verdict === "invalid" && data.validationError === RAW_TOO_LONG_ERROR,
+      live: {
+        operationId: body.operationId,
+        modelCallId: data.modelCallId,
+        requestDigest: data.requestDigest ?? null,
+        providerModel: data.providerModel ?? null,
+        status: data.disposition ?? "acquired_new",
+        usage: data.usage ?? null,
+        latencyMs: data.latencyMs ?? null,
+        outputDigest: data.outputDigest ?? null,
+      },
+    };
+  };
 }

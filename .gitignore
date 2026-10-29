@@ -7,3 +7,19 @@ dist/
 coverage/
 *.log
 .DS_Store
+sample-results/
+
+# Local credentials and generated artifacts
+.creds/
+ArchiveManager-creds.txt
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.zip
+*.7z
+*.tar
+*.gz
+.cache/

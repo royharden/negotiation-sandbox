@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 2,
+  "rulesetVersion": 2,
+  "id": "design-retainer-v2",
+  "title": "Design retainer (v2, sampled cards)",
+  "publicBrief": "A client and a studio set a monthly retainer and who keeps the working files. Each instance seed samples small offsets to both private cards.",
+  "issues": [
+    { "id": "fee", "label": "Monthly fee", "kind": "number", "min": 2000, "max": 6000, "step": 250, "unit": "USD" },
+    { "id": "files", "label": "Working files", "kind": "choice", "options": ["client", "shared", "studio"] }
+  ],
+  "parties": {
+    "buyer": {
+      "label": "Client",
+      "publicBrief": "You want predictable design capacity without buying the studio archive.",
+      "private": {
+        "reservationUtility": 18,
+        "scores": {
+          "fee": { "kind": "number", "atMin": 40, "atMax": 0 },
+          "files": { "kind": "choice", "options": { "client": 12, "shared": 9, "studio": 0 } }
+        }
+      }
+    },
+    "seller": {
+      "label": "Studio",
+      "publicBrief": "You want a retainer that covers senior time.",
+      "private": {
+        "reservationUtility": 16,
+        "scores": {
+          "fee": { "kind": "number", "atMin": 0, "atMax": 40 },
+          "files": { "kind": "choice", "options": { "client": 0, "shared": 7, "studio": 14 } }
+        }
+      }
+    }
+  },
+  "rules": { "maxRounds": 6, "openingRole": "buyer" },
+  "variation": [
+    { "role": "buyer", "field": "reservation", "jitterMin": -2, "jitterMax": 2 },
+    { "role": "seller", "field": "reservation", "jitterMin": -2, "jitterMax": 2 },
+    { "role": "buyer", "field": "choice-score", "issueId": "files", "option": "client", "jitterMin": -3, "jitterMax": 3 },
+    { "role": "seller", "field": "number-max-score", "issueId": "fee", "jitterMin": -4, "jitterMax": 4 }
+  ]
+}
